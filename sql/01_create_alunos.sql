@@ -15,3 +15,7 @@ CREATE TABLE IF NOT EXISTS public.alunos (
     erros INTEGER NOT NULL DEFAULT 0 CHECK (erros >= 0),
     progresso NUMERIC(5,2) NOT NULL DEFAULT 0 CHECK (progresso >= 0 AND progresso <= 100)
 );
+
+CREATE UNIQUE INDEX IF NOT EXISTS alunos_nickname_unique_idx
+ON public.alunos (LOWER(BTRIM(nickname)))
+WHERE nickname IS NOT NULL AND BTRIM(nickname) <> '';
