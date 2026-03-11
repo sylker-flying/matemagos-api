@@ -236,6 +236,44 @@ app.put("/alunos/:matricula", async (req, res) => {
   }
 });
 
+// GET /leaderboard/top?limit=N  — top N players by pontos desc
+app.get("/leaderboard/top", async (req, res) => {
+  try {
+    const limit = Math.min(Math.max(parseInt(req.query.limit) || 10, 1), 100);
+    const result = await pool.query(
+      `SELECT matricula, nickname, pontos, vitorias, escola,
+              RANK() OVER (ORDER BY pontos DESC) AS rank
+       FROM public.alunos
+       ORDER BY pontos DESC
+       LIMIT $1`,
+      [limit]
+    );
+    return res.json(result.rows);
+  } catch (error) {
+    return res.status(500).json({ message: error.message });
+  }
+});
+
+// GET /leaderboard/rank/:matricula  — rank and score for a single player
+app.get("/leaderboard/rank/:matricula", async (req, res) => {
+  try {
+    const { matricula } = req.params;
+    const result = await pool.query(
+      `SELECT matricula, nickname, pontos, vitorias, escola,
+              RANK() OVER (ORDER BY pontos DESC) AS rank
+       FROM public.alunos
+       WHERE matricula = $1`,
+      [matricula]
+    );
+    if (result.rowCount === 0) {
+      return res.status(404).json({ message: "aluno not found" });
+    }
+    return res.json(result.rows[0]);
+  } catch (error) {
+    return res.status(500).json({ message: error.message });
+  }
+});
+
 app.listen(port, () => {
   console.log(`Matemagos API listening on port ${port}`);
 });
