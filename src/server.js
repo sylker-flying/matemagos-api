@@ -323,14 +323,20 @@ app.put("/alunos/:matricula", async (req, res) => {
 // GET /leaderboard/top?limit=N  — top N players by pontos desc
 app.get("/leaderboard/top", async (req, res) => {
   try {
+    const ticket = typeof req.query.ticket === "string" ? req.query.ticket.trim() : "";
+    if (!ticket) {
+      return res.status(400).json({ message: "ticket is required" });
+    }
+
     const limit = Math.min(Math.max(parseInt(req.query.limit) || 10, 1), 100);
     const result = await pool.query(
       `SELECT matricula, nickname, pontos, vitorias, escola,
               RANK() OVER (ORDER BY pontos DESC) AS rank
        FROM public.alunos
+       WHERE ticket = $1
        ORDER BY pontos DESC
-       LIMIT $1`,
-      [limit]
+       LIMIT $2`,
+      [ticket, limit]
     );
     return res.json(result.rows);
   } catch (error) {
@@ -342,12 +348,21 @@ app.get("/leaderboard/top", async (req, res) => {
 app.get("/leaderboard/rank/:matricula", async (req, res) => {
   try {
     const { matricula } = req.params;
+    const ticket = typeof req.query.ticket === "string" ? req.query.ticket.trim() : "";
+    if (!ticket) {
+      return res.status(400).json({ message: "ticket is required" });
+    }
+
     const result = await pool.query(
-      `SELECT matricula, nickname, avatar, escola, partidas, vitorias, pontos,
-              RANK() OVER (ORDER BY pontos DESC) AS rank
-       FROM public.alunos
+      `SELECT matricula, nickname, avatar, escola, partidas, vitorias, pontos, rank
+       FROM (
+         SELECT matricula, nickname, avatar, escola, partidas, vitorias, pontos,
+                RANK() OVER (ORDER BY pontos DESC) AS rank
+         FROM public.alunos
+         WHERE ticket = $2
+       ) ranked
        WHERE matricula = $1`,
-      [matricula]
+      [matricula, ticket]
     );
     if (result.rowCount === 0) {
       return res.status(404).json({ message: "aluno not found" });
