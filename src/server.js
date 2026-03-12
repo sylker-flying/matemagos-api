@@ -37,13 +37,20 @@ function createMysqlPoolFromEnv() {
       }
     : undefined;
 
-  const connectionUrl = process.env.DATABASE_URL || process.env.MYSQL_URL;
-  if (connectionUrl) {
-    const parsed = new URL(connectionUrl);
+  const rawConnectionUrls = [process.env.MYSQL_URL, process.env.DATABASE_URL].filter(
+    Boolean
+  );
+
+  for (const rawUrl of rawConnectionUrls) {
+    let parsed;
+    try {
+      parsed = new URL(rawUrl);
+    } catch (_error) {
+      continue;
+    }
+
     if (!["mysql:", "mysql2:"].includes(parsed.protocol)) {
-      throw new Error(
-        "DATABASE_URL/MYSQL_URL must use mysql:// protocol when running with MySQL"
-      );
+      continue;
     }
 
     return mysql.createPool({
@@ -57,6 +64,12 @@ function createMysqlPoolFromEnv() {
       connectionLimit: Number(process.env.DB_POOL_SIZE || 10),
       queueLimit: 0
     });
+  }
+
+  if (process.env.DATABASE_URL && !process.env.MYSQL_URL) {
+    console.warn(
+      "Ignoring non-MySQL DATABASE_URL. Set MYSQL_URL or MYSQLHOST/MYSQLPORT/MYSQLUSER/MYSQLPASSWORD/MYSQLDATABASE."
+    );
   }
 
   return mysql.createPool({
