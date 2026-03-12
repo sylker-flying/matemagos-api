@@ -331,7 +331,7 @@ app.get("/leaderboard/top", async (req, res) => {
     const limit = Math.min(Math.max(parseInt(req.query.limit) || 10, 1), 100);
     const result = await pool.query(
       `SELECT matricula, nickname, pontos, vitorias, escola,
-              RANK() OVER (ORDER BY pontos DESC) AS rank
+              ROW_NUMBER() OVER (ORDER BY pontos DESC, matricula ASC) AS rank
        FROM public.alunos
        WHERE ticket = $1
        ORDER BY pontos DESC
@@ -357,7 +357,7 @@ app.get("/leaderboard/rank/:matricula", async (req, res) => {
       `SELECT matricula, nickname, avatar, escola, partidas, vitorias, pontos, rank
        FROM (
          SELECT matricula, nickname, avatar, escola, partidas, vitorias, pontos,
-                RANK() OVER (ORDER BY pontos DESC) AS rank
+                ROW_NUMBER() OVER (ORDER BY pontos DESC, matricula ASC) AS rank
          FROM public.alunos
          WHERE ticket = $2
        ) ranked
