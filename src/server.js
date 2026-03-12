@@ -2,40 +2,133 @@ const express = require("express");
 const cors = require("cors");
 const helmet = require("helmet");
 const dotenv = require("dotenv");
-const { Pool } = require("pg");
+const mysql = require("mysql2/promise");
 
 dotenv.config();
 
 const app = express();
 const port = Number(process.env.PORT || 8080);
 
-const pool = new Pool({
-  connectionString: process.env.DATABASE_URL,
-  ssl: {
-    rejectUnauthorized: false
+function toBool(value, defaultValue) {
+  if (value === undefined || value === null) {
+    return defaultValue;
   }
-});
+
+  const normalized = String(value).trim().toLowerCase();
+  if (normalized === "true" || normalized === "1") {
+    return true;
+  }
+  if (normalized === "false" || normalized === "0") {
+    return false;
+  }
+
+  return defaultValue;
+}
+
+function createMysqlPoolFromEnv() {
+  const sslEnabled = toBool(process.env.MYSQL_SSL, true);
+  const rejectUnauthorized = toBool(
+    process.env.MYSQL_SSL_REJECT_UNAUTHORIZED,
+    true
+  );
+  const sslOptions = sslEnabled
+    ? {
+        rejectUnauthorized
+      }
+    : undefined;
+
+  const connectionUrl = process.env.DATABASE_URL || process.env.MYSQL_URL;
+  if (connectionUrl) {
+    const parsed = new URL(connectionUrl);
+    if (!["mysql:", "mysql2:"].includes(parsed.protocol)) {
+      throw new Error(
+        "DATABASE_URL/MYSQL_URL must use mysql:// protocol when running with MySQL"
+      );
+    }
+
+    return mysql.createPool({
+      host: parsed.hostname,
+      port: Number(parsed.port || 3306),
+      user: decodeURIComponent(parsed.username),
+      password: decodeURIComponent(parsed.password),
+      database: parsed.pathname.replace(/^\//, ""),
+      ssl: sslOptions,
+      waitForConnections: true,
+      connectionLimit: Number(process.env.DB_POOL_SIZE || 10),
+      queueLimit: 0
+    });
+  }
+
+  return mysql.createPool({
+    host: process.env.MYSQLHOST || process.env.DB_HOST,
+    port: Number(process.env.MYSQLPORT || process.env.DB_PORT || 3306),
+    user: process.env.MYSQLUSER || process.env.DB_USER,
+    password: process.env.MYSQLPASSWORD || process.env.DB_PASSWORD,
+    database: process.env.MYSQLDATABASE || process.env.DB_NAME,
+    ssl: sslOptions,
+    waitForConnections: true,
+    connectionLimit: Number(process.env.DB_POOL_SIZE || 10),
+    queueLimit: 0
+  });
+}
+
+const pool = createMysqlPoolFromEnv();
+
+async function query(sql, params = []) {
+  const [result] = await pool.execute(sql, params);
+
+  if (Array.isArray(result)) {
+    return {
+      rows: result,
+      rowCount: result.length,
+      affectedRows: result.length
+    };
+  }
+
+  return {
+    rows: [],
+    rowCount: Number(result.affectedRows || 0),
+    affectedRows: Number(result.affectedRows || 0)
+  };
+}
+
+async function findAlunoByMatricula(matricula, selectClause = "*") {
+  const result = await query(
+    `SELECT ${selectClause} FROM alunos WHERE matricula = ? LIMIT 1`,
+    [matricula]
+  );
+
+  return result.rows[0] || null;
+}
 
 app.use(helmet());
 app.use(cors({ origin: process.env.CORS_ORIGIN || "*" }));
 app.use(express.json({ limit: "1mb" }));
 
 const ALUNOS_SELECTABLE_FIELDS = new Set([
+  "id",
   "matricula",
+  "nome",
   "nickname",
   "avatar",
+  "sexo",
+  "nascimento",
   "escola",
   "ano",
   "turma",
-  "partidas",
-  "vitorias",
+  "partidas_pve",
+  "partidas_pvp",
+  "vitorias_pve",
+  "vitorias_pvp",
   "questoes",
   "acertos",
   "pontos",
   "progresso",
   "device",
   "ticket",
-  "validade"
+  "validade",
+  "criado_em",
+  "atualizado_em"
 ]);
 
 function parseNonNegativeInt(value, fieldName) {
@@ -105,93 +198,24 @@ function normalizeNickname(value) {
 
 app.get("/health", async (_req, res) => {
   try {
-    const result = await pool.query("SELECT NOW() AS now");
+    const result = await query("SELECT NOW() AS now");
     res.json({ status: "ok", dbTime: result.rows[0].now });
   } catch (error) {
     res.status(500).json({ status: "error", message: error.message });
   }
 });
 
-/*
-app.post("/alunos", async (req, res) => {
-  try {
-    const {
-      matricula,
-      nickname,
-      avatar,
-      escola,
-      ano,
-      turma,
-      partidas,
-      vitorias,
-      derrotas,
-      questoes,
-      acertos,
-      progresso,
-      pontos,
-      device,
-      ticket,
-      validade,
-    } = req.body;
-
-    if (!matricula) {
-      return res.status(400).json({ message: "matricula is required" });
-    }
-
-    const query = `
-      INSERT INTO public.alunos (
-        matricula, nickname, avatar, escola, ano, turma, partidas, vitorias, derrotas, questoes, acertos, progresso, pontos, device, ticket, validade
-      ) VALUES (
-        $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16
-      )
-      RETURNING *
-    `;
-
-    const values = [
-      matricula,
-      nickname ?? null,
-      avatar ?? null,
-      escola ?? null,
-      ano ?? null,
-      turma ?? null,
-      partidas ?? null,
-      vitorias ?? null,
-      derrotas ?? null,
-      questoes ?? null,
-      acertos ?? null,
-      progresso ?? null,
-      pontos ?? null,
-      device ?? null,
-      ticket ?? null,
-      validade ?? null
-    ];
-
-    const result = await pool.query(query, values);
-    return res.status(201).json(result.rows[0]);
-  } catch (error) {
-    if (error.code === "23505") {
-      return res.status(409).json({ message: "matricula already exists" });
-    }
-
-    return res.status(400).json({ message: error.message });
-  }
-});
-*/
-
 app.get("/alunos/:matricula", async (req, res) => {
   try {
     const { matricula } = req.params;
     const selectClause = buildAlunoSelectClause(req.query.select);
-    const result = await pool.query(
-      `SELECT ${selectClause} FROM public.alunos WHERE matricula = $1`,
-      [matricula]
-    );
+    const aluno = await findAlunoByMatricula(matricula, selectClause);
 
-    if (result.rowCount === 0) {
+    if (!aluno) {
       return res.status(404).json({ message: "aluno not found" });
     }
 
-    return res.json(result.rows[0]);
+    return res.json(aluno);
   } catch (error) {
     return res.status(error.statusCode || 500).json({ message: error.message });
   }
@@ -200,44 +224,88 @@ app.get("/alunos/:matricula", async (req, res) => {
 app.put("/alunos/:matricula/stats", async (req, res) => {
   try {
     const { matricula } = req.params;
-    const { partidas, vitorias, questoes, acertos, pontos, progresso } = req.body;
+    const {
+      partidas_pve,
+      partidas_pvp,
+      vitorias_pve,
+      vitorias_pvp,
+      questoes,
+      acertos,
+      pontos,
+      progresso,
+      // Legacy compatibility fields used by older Unity clients.
+      partidas,
+      vitorias,
+      derrotas,
+      erros
+    } = req.body;
 
-    const parsedPartidas = parseNonNegativeInt(partidas, "partidas");
-    const parsedVitorias = parseNonNegativeInt(vitorias, "vitorias");
-    const parsedQuestoes = parseNonNegativeInt(questoes, "questoes");
-    const parsedAcertos = parseNonNegativeInt(acertos, "acertos"); 
+    const parsedPartidasPve = parseNonNegativeInt(partidas_pve, "partidas_pve");
+    let parsedPartidasPvp = parseNonNegativeInt(
+      partidas_pvp ?? partidas,
+      "partidas_pvp"
+    );
+    const parsedVitoriasPve = parseNonNegativeInt(vitorias_pve, "vitorias_pve");
+    const parsedVitoriasPvp = parseNonNegativeInt(
+      vitorias_pvp ?? vitorias,
+      "vitorias_pvp"
+    );
+
+    if (parsedPartidasPvp === null) {
+      const parsedDerrotas = parseNonNegativeInt(derrotas, "derrotas");
+      if (parsedVitoriasPvp !== null && parsedDerrotas !== null) {
+        parsedPartidasPvp = parsedVitoriasPvp + parsedDerrotas;
+      }
+    }
+
+    let parsedQuestoes = parseNonNegativeInt(questoes, "questoes");
+    if (parsedQuestoes === null) {
+      const parsedErros = parseNonNegativeInt(erros, "erros");
+      const parsedAcertosCandidate = parseNonNegativeInt(acertos, "acertos");
+      if (parsedErros !== null && parsedAcertosCandidate !== null) {
+        parsedQuestoes = parsedAcertosCandidate + parsedErros;
+      }
+    }
+
+    const parsedAcertos = parseNonNegativeInt(acertos, "acertos");
     const parsedPontos = parseNonNegativeInt(pontos, "pontos");
     const parsedProgresso = parseProgress(progresso);
 
-    const result = await pool.query(
-      `
-      UPDATE public.alunos
-      SET
-        partidas = COALESCE($2, partidas),
-        vitorias = COALESCE($3, vitorias),
-        questoes = COALESCE($4, questoes),
-        acertos = COALESCE($5, acertos),
-        pontos = COALESCE($6, pontos),
-        progresso = COALESCE($7, progresso)
-      WHERE matricula = $1
-      RETURNING *
-      `,
-      [
-        matricula,
-        parsedPartidas,
-        parsedVitorias,
-        parsedQuestoes,
-        parsedAcertos,
-        parsedPontos,
-        parsedProgresso
-      ]
-    );
-
-    if (result.rowCount === 0) {
+    const alunoExists = await findAlunoByMatricula(matricula, "matricula");
+    if (!alunoExists) {
       return res.status(404).json({ message: "aluno not found" });
     }
 
-    return res.json(result.rows[0]);
+    await query(
+      `
+      UPDATE alunos
+      SET
+        partidas_pve = COALESCE(?, partidas_pve),
+        partidas_pvp = COALESCE(?, partidas_pvp),
+        vitorias_pve = COALESCE(?, vitorias_pve),
+        vitorias_pvp = COALESCE(?, vitorias_pvp),
+        questoes = COALESCE(?, questoes),
+        acertos = COALESCE(?, acertos),
+        pontos = COALESCE(?, pontos),
+        progresso = COALESCE(?, progresso)
+      WHERE matricula = ?
+      `,
+      [
+        parsedPartidasPve,
+        parsedPartidasPvp,
+        parsedVitoriasPve,
+        parsedVitoriasPvp,
+        parsedQuestoes,
+        parsedAcertos,
+        parsedPontos,
+        parsedProgresso,
+        matricula
+      ]
+    );
+
+    const updatedAluno = await findAlunoByMatricula(matricula);
+
+    return res.json(updatedAluno);
   } catch (error) {
     return res.status(400).json({ message: error.message });
   }
@@ -247,24 +315,24 @@ app.put("/alunos/:matricula", async (req, res) => {
   try {
     const { matricula } = req.params;
     const {
-      nome,
       nickname,
       avatar,
-      sexo,
-      nascimento,
       escola,
       ano,
-      turma
+      turma,
+      device,
+      ticket,
+      validade
     } = req.body;
 
     const normalizedNickname = normalizeNickname(nickname);
 
     if (normalizedNickname) {
-      const nicknameExists = await pool.query(
+      const nicknameExists = await query(
         `SELECT 1
-         FROM public.alunos
-         WHERE LOWER(BTRIM(nickname)) = LOWER(BTRIM($1))
-           AND matricula <> $2
+         FROM alunos
+         WHERE LOWER(TRIM(nickname)) = LOWER(TRIM(?))
+           AND matricula <> ?
          LIMIT 1`,
         [normalizedNickname, matricula]
       );
@@ -276,41 +344,43 @@ app.put("/alunos/:matricula", async (req, res) => {
       }
     }
 
-    const result = await pool.query(
-      `
-      UPDATE public.alunos
-      SET
-        nome = COALESCE($2, nome),
-        nickname = COALESCE($3, nickname),
-        avatar = COALESCE($4, avatar),
-        sexo = COALESCE($5, sexo),
-        nascimento = COALESCE($6, nascimento),
-        escola = COALESCE($7, escola),
-        ano = COALESCE($8, ano),
-        turma = COALESCE($9, turma)
-      WHERE matricula = $1
-      RETURNING *
-      `,
-      [
-        matricula,
-        nome ?? null,
-        normalizedNickname,
-        avatar ?? null,
-        sexo ?? null,
-        nascimento ?? null,
-        escola ?? null,
-        ano ?? null,
-        turma ?? null
-      ]
-    );
-
-    if (result.rowCount === 0) {
+    const alunoExists = await findAlunoByMatricula(matricula, "matricula");
+    if (!alunoExists) {
       return res.status(404).json({ message: "aluno not found" });
     }
 
-    return res.json(result.rows[0]);
+    await query(
+      `
+      UPDATE alunos
+      SET
+        nickname = COALESCE(?, nickname),
+        avatar = COALESCE(?, avatar),
+        escola = COALESCE(?, escola),
+        ano = COALESCE(?, ano),
+        turma = COALESCE(?, turma),
+        device = COALESCE(?, device),
+        ticket = COALESCE(?, ticket),
+        validade = COALESCE(?, validade)
+      WHERE matricula = ?
+      `,
+      [
+        normalizedNickname,
+        avatar ?? null,
+        escola ?? null,
+        ano ?? null,
+        turma ?? null,
+        device ?? null,
+        ticket ?? null,
+        validade ?? null,
+        matricula
+      ]
+    );
+
+    const updatedAluno = await findAlunoByMatricula(matricula);
+
+    return res.json(updatedAluno);
   } catch (error) {
-    if (error.code === "23505") {
+    if (error.code === "ER_DUP_ENTRY" || error.errno === 1062) {
       return res.status(409).json({
         message: "Este nickname já está em uso. Tente um apelido diferente."
       });
@@ -329,13 +399,16 @@ app.get("/leaderboard/top", async (req, res) => {
     }
 
     const limit = Math.min(Math.max(parseInt(req.query.limit) || 10, 1), 100);
-    const result = await pool.query(
-      `SELECT matricula, nickname, pontos, vitorias, escola,
+    const result = await query(
+          `SELECT matricula, nickname, pontos,
+            vitorias_pvp,
+            vitorias_pvp AS vitorias,
+            escola,
               ROW_NUMBER() OVER (ORDER BY pontos DESC, matricula ASC) AS rank
-       FROM public.alunos
-       WHERE ticket = $1
+       FROM alunos
+       WHERE ticket = ?
        ORDER BY pontos DESC
-       LIMIT $2`,
+       LIMIT ?`,
       [ticket, limit]
     );
     return res.json(result.rows);
@@ -353,16 +426,22 @@ app.get("/leaderboard/rank/:matricula", async (req, res) => {
       return res.status(400).json({ message: "ticket is required" });
     }
 
-    const result = await pool.query(
-      `SELECT matricula, nickname, avatar, escola, partidas, vitorias, pontos, rank
+    const result = await query(
+      `SELECT matricula, nickname, avatar, escola,
+              partidas_pvp,
+              vitorias_pvp,
+              partidas_pvp AS partidas,
+              vitorias_pvp AS vitorias,
+              pontos,
+              rank
        FROM (
-         SELECT matricula, nickname, avatar, escola, partidas, vitorias, pontos,
+         SELECT matricula, nickname, avatar, escola, partidas_pvp, vitorias_pvp, pontos,
                 ROW_NUMBER() OVER (ORDER BY pontos DESC, matricula ASC) AS rank
-         FROM public.alunos
-         WHERE ticket = $2
+         FROM alunos
+         WHERE ticket = ?
        ) ranked
-       WHERE matricula = $1`,
-      [matricula, ticket]
+       WHERE matricula = ?`,
+      [ticket, matricula]
     );
     if (result.rowCount === 0) {
       return res.status(404).json({ message: "aluno not found" });

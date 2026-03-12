@@ -1,6 +1,6 @@
 # Matemagos Backend API
 
-REST API gateway for Matemagos Unity game, connecting to Aiven PostgreSQL database via Railway cloud platform.
+REST API gateway for Matemagos Unity game, connecting to Aiven MySQL database via Railway cloud platform.
 
 ## Architecture Overview
 
@@ -15,32 +15,32 @@ REST API gateway for Matemagos Unity game, connecting to Aiven PostgreSQL databa
 │   Railway Cloud Platform                      │
 │   ├─ Node.js Express API (src/server.js)     │
 │   │   └─ 5 REST Endpoints                    │
-│   └─ Environment: DATABASE_URL, CORS_ORIGIN  │
+│   └─ Environment: DATABASE_URL, MYSQL_SSL, MYSQL_SSL_REJECT_UNAUTHORIZED, CORS_ORIGIN  │
 └──────────┬───────────────────────────────────┘
-           │ PostgreSQL Driver (pg)
+           │ MySQL Driver (mysql2)
            ▼
 ┌──────────────────────────────────┐
-│ Aiven Cloud PostgreSQL            │
-│ ├─ Host: pg-3f4d53df-matemagos.i │
-│ ├─ Port: 25758 (SSL)             │
+│ Aiven Cloud MySQL                │
+│ ├─ Host: <aiven-mysql-host>      │
+│ ├─ Port: <aiven-mysql-port> (SSL)│
 │ ├─ Database: matemagos           │
-│ └─ Table: public.alunos          │
+│ └─ Table: alunos                 │
 └──────────────────────────────────┘
 ```
 
 ## Infrastructure
 
-### 1. PostgreSQL Database (Aiven Cloud)
+### 1. MySQL Database (Aiven Cloud)
 
 - **Provider**: Aiven.io
-- **Host**: `pg-3f4d53df-matemagos.i.aivencloud.com:25758`
+- **Host**: `<your-aiven-mysql-host>:<your-aiven-mysql-port>`
 - **Database**: `matemagos`
-- **Table**: `public.alunos` (14 columns)
-  - Primary key: `id` (serial)
+- **Table**: `alunos`
+  - Primary key: `id` (auto increment)
   - Unique key: `matricula` (varchar)
   - Data: nome, nickname, avatar, sexo, nascimento, escola, ano, turma
   - Stats: vitorias, derrotas, acertos, erros, progresso
-- **SSL**: Enabled (connection string with SSL parameters)
+- **SSL**: Enabled (`MYSQL_SSL=true`)
 
 ### 2. Backend API (Railway Cloud)
 
@@ -53,7 +53,9 @@ REST API gateway for Matemagos Unity game, connecting to Aiven PostgreSQL databa
 #### Environment Variables (Railway Dashboard → Variables):
 
 ```
-DATABASE_URL=postgresql://<user>:<password>@<host>:<port>/<database>
+DATABASE_URL=mysql://<user>:<password>@<host>:<port>/<database>
+MYSQL_SSL=true
+MYSQL_SSL_REJECT_UNAUTHORIZED=true
 CORS_ORIGIN=*
 ```
 
@@ -84,7 +86,7 @@ CORS_ORIGIN=*
 4. **Unity Connection**:
    - Game reads `PostgresApiUrl` from Database.cs
    - Calls Railway API endpoints via UnityWebRequest
-   - Data persists in Aiven PostgreSQL
+  - Data persists in Aiven MySQL
 
 ## Quick Start
 
@@ -100,7 +102,15 @@ npm install
 cp .env.example .env
 ```
 
-Set `DATABASE_URL` to your PostgreSQL connection string.
+Set `DATABASE_URL` to your MySQL connection string.
+
+### 2.1 Create Schema (Aiven MySQL)
+
+Run:
+
+```bash
+mysql --host=<host> --port=<port> --user=<user> --password <database> < sql/01_create_alunos_mysql.sql
+```
 
 ### 3. Run Locally
 
