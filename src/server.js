@@ -25,17 +25,44 @@ function toBool(value, defaultValue) {
   return defaultValue;
 }
 
-function createMysqlPoolFromEnv() {
+function normalizeMultilineEnvValue(value) {
+  if (value === undefined || value === null) {
+    return null;
+  }
+
+  return String(value).replace(/\\n/g, "\n").trim();
+}
+
+function getMysqlSslOptions() {
   const sslEnabled = toBool(process.env.MYSQL_SSL, true);
+  if (!sslEnabled) {
+    return undefined;
+  }
+
   const rejectUnauthorized = toBool(
     process.env.MYSQL_SSL_REJECT_UNAUTHORIZED,
     true
   );
-  const sslOptions = sslEnabled
-    ? {
-        rejectUnauthorized
-      }
-    : undefined;
+  const sslOptions = {
+    rejectUnauthorized
+  };
+
+  const caFromEnv = normalizeMultilineEnvValue(process.env.MYSQL_SSL_CA);
+  if (caFromEnv) {
+    sslOptions.ca = caFromEnv;
+    return sslOptions;
+  }
+
+  const caBase64 = normalizeMultilineEnvValue(process.env.MYSQL_SSL_CA_BASE64);
+  if (caBase64) {
+    sslOptions.ca = Buffer.from(caBase64, "base64").toString("utf8");
+  }
+
+  return sslOptions;
+}
+
+function createMysqlPoolFromEnv() {
+  const sslOptions = getMysqlSslOptions();
 
   const rawConnectionUrls = [process.env.MYSQL_URL, process.env.DATABASE_URL].filter(
     Boolean

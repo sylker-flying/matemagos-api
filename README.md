@@ -15,7 +15,7 @@ REST API gateway for Matemagos Unity game, connecting to Aiven MySQL database vi
 │   Railway Cloud Platform                      │
 │   ├─ Node.js Express API (src/server.js)     │
 │   │   └─ 5 REST Endpoints                    │
-│   └─ Environment: DATABASE_URL, MYSQL_SSL, MYSQL_SSL_REJECT_UNAUTHORIZED, CORS_ORIGIN  │
+│   └─ Environment: DATABASE_URL, MYSQL_SSL, MYSQL_SSL_REJECT_UNAUTHORIZED, MYSQL_SSL_CA, CORS_ORIGIN  │
 └──────────┬───────────────────────────────────┘
            │ MySQL Driver (mysql2)
            ▼
@@ -56,8 +56,11 @@ REST API gateway for Matemagos Unity game, connecting to Aiven MySQL database vi
 DATABASE_URL=mysql://<user>:<password>@<host>:<port>/<database>
 MYSQL_SSL=true
 MYSQL_SSL_REJECT_UNAUTHORIZED=true
+MYSQL_SSL_CA=-----BEGIN CERTIFICATE-----\n...\n-----END CERTIFICATE-----
 CORS_ORIGIN=*
 ```
+
+You can also use `MYSQL_SSL_CA_BASE64` instead of `MYSQL_SSL_CA` if copying a PEM block into Railway is inconvenient.
 
 ### 3. Unity Client
 
@@ -103,6 +106,18 @@ cp .env.example .env
 ```
 
 Set `DATABASE_URL` to your MySQL connection string.
+
+For proper certificate verification against Aiven, also set one of:
+
+```bash
+MYSQL_SSL_CA="-----BEGIN CERTIFICATE-----\n...\n-----END CERTIFICATE-----"
+```
+
+or:
+
+```bash
+MYSQL_SSL_CA_BASE64="<base64-encoded-pem>"
+```
 
 ### 2.1 Create Schema (Aiven MySQL)
 
