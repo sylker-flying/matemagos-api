@@ -547,14 +547,19 @@ app.get("/leaderboard/top", async (req, res) => {
                     a2.pontos > a1.pontos
                     OR (a2.pontos = a1.pontos AND a2.matricula < a1.matricula)
                   )
-              ) AS rank
+              ) AS rank_pos
        FROM alunos a1
        WHERE a1.ticket = ?
        ORDER BY a1.pontos DESC, a1.matricula ASC
        LIMIT ?`,
       [ticket, limit]
     );
-    return res.json(result.rows);
+    return res.json(
+      result.rows.map((row) => ({
+        ...row,
+        rank: row.rank_pos
+      }))
+    );
   } catch (error) {
     return res.status(500).json({ message: error.message });
   }
@@ -587,7 +592,7 @@ app.get("/leaderboard/rank/:matricula", async (req, res) => {
                     a2.pontos > a1.pontos
                     OR (a2.pontos = a1.pontos AND a2.matricula < a1.matricula)
                   )
-              ) AS rank
+              ) AS rank_pos
        FROM alunos a1
        WHERE a1.ticket = ?
          AND a1.matricula = ?
@@ -597,7 +602,10 @@ app.get("/leaderboard/rank/:matricula", async (req, res) => {
     if (result.rowCount === 0) {
       return res.status(404).json({ message: "aluno not found" });
     }
-    return res.json(result.rows[0]);
+    return res.json({
+      ...result.rows[0],
+      rank: result.rows[0].rank_pos
+    });
   } catch (error) {
     return res.status(500).json({ message: error.message });
   }
