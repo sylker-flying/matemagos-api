@@ -2,6 +2,7 @@ const express = require("express");
 const cors = require("cors");
 const helmet = require("helmet");
 const dotenv = require("dotenv");
+const crypto = require("crypto");
 const mysql = require("mysql2/promise");
 
 dotenv.config();
@@ -236,6 +237,38 @@ function normalizeNickname(value) {
   return normalized.length > 0 ? normalized : null;
 }
 
+function normalizeMatricula(payload) {
+  const raw = payload?.matricula ?? payload?.playerId;
+  if (raw === undefined || raw === null) {
+    return null;
+  }
+
+  const normalized = String(raw).trim();
+  return normalized.length > 0 ? normalized : null;
+}
+
+function normalizeDeviceId(value) {
+  if (value === undefined || value === null) {
+    return null;
+  }
+
+  const normalized = String(value).trim();
+  return normalized.length > 0 ? normalized : null;
+}
+
+function hashDeviceId(deviceId) {
+  return crypto.createHash("sha256").update(deviceId).digest("hex");
+}
+
+function toStoredDeviceId(deviceId) {
+  const normalized = String(deviceId).trim().toLowerCase();
+  if (/^[a-f0-9]{64}$/.test(normalized)) {
+    return normalized;
+  }
+
+  return hashDeviceId(deviceId);
+}
+
 app.get("/health", async (_req, res) => {
   try {
     const result = await query("SELECT NOW() AS now");
@@ -258,6 +291,66 @@ app.get("/alunos/:matricula", async (req, res) => {
     return res.json(aluno);
   } catch (error) {
     return res.status(error.statusCode || 500).json({ message: error.message });
+  }
+});
+
+app.put("/device-id", async (req, res) => {
+  try {
+    const matricula = normalizeMatricula(req.body || {});
+    const deviceId = normalizeDeviceId(req.body?.deviceId);
+
+    if (!deviceId) {
+      return res.status(400).json({ message: "deviceId is required" });
+    }
+
+    if (!matricula) {
+      return res.status(400).json({
+        message: "matricula or playerId is required"
+      });
+    }
+
+    const alunoExists = await findAlunoByMatricula(matricula, "matricula");
+    if (!alunoExists) {
+      return res.status(404).json({ message: "aluno not found" });
+    }
+
+    await query(
+      `
+      UPDATE alunos
+      SET device = ?
+      WHERE matricula = ?
+      `,
+      [toStoredDeviceId(deviceId), matricula]
+    );
+
+    return res.json({ message: "device id updated" });
+  } catch (error) {
+    return res.status(400).json({ message: error.message });
+  }
+});
+
+app.put("/device-id/reset", async (req, res) => {
+  try {
+    const matricula = normalizeMatricula(req.body || {});
+
+    if (!matricula) {
+      return res.json({
+        message: "device id reset skipped (matricula or playerId not provided)"
+      });
+    }
+
+    await query(
+      `
+      UPDATE alunos
+      SET device = NULL
+      WHERE matricula = ?
+      `,
+      [matricula]
+    );
+
+    return res.json({ message: "device id reset" });
+  } catch (error) {
+    return res.status(400).json({ message: error.message });
   }
 });
 

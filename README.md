@@ -145,6 +145,8 @@ curl http://localhost:8080/health
 - `GET /alunos/:matricula`
 - `PUT /alunos/:matricula`
 - `PUT /alunos/:matricula/stats`
+- `PUT /device-id`
+- `PUT /device-id/reset`
 
 ### Create aluno
 
