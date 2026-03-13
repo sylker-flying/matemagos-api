@@ -533,14 +533,24 @@ app.get("/leaderboard/top", async (req, res) => {
 
     const limit = Math.min(Math.max(parseInt(req.query.limit) || 10, 1), 100);
     const result = await query(
-          `SELECT matricula, nickname, pontos,
-            vitorias_pvp,
-            vitorias_pvp AS vitorias,
-            escola,
-              ROW_NUMBER() OVER (ORDER BY pontos DESC, matricula ASC) AS rank
-       FROM alunos
-       WHERE ticket = ?
-       ORDER BY pontos DESC
+      `SELECT a1.matricula,
+              a1.nickname,
+              a1.pontos,
+              a1.vitorias_pvp,
+              a1.vitorias_pvp AS vitorias,
+              a1.escola,
+              (
+                SELECT COUNT(*) + 1
+                FROM alunos a2
+                WHERE a2.ticket = a1.ticket
+                  AND (
+                    a2.pontos > a1.pontos
+                    OR (a2.pontos = a1.pontos AND a2.matricula < a1.matricula)
+                  )
+              ) AS rank
+       FROM alunos a1
+       WHERE a1.ticket = ?
+       ORDER BY a1.pontos DESC, a1.matricula ASC
        LIMIT ?`,
       [ticket, limit]
     );
@@ -560,20 +570,28 @@ app.get("/leaderboard/rank/:matricula", async (req, res) => {
     }
 
     const result = await query(
-      `SELECT matricula, nickname, avatar, escola,
-              partidas_pvp,
-              vitorias_pvp,
-              partidas_pvp AS partidas,
-              vitorias_pvp AS vitorias,
-              pontos,
-              rank
-       FROM (
-         SELECT matricula, nickname, avatar, escola, partidas_pvp, vitorias_pvp, pontos,
-                ROW_NUMBER() OVER (ORDER BY pontos DESC, matricula ASC) AS rank
-         FROM alunos
-         WHERE ticket = ?
-       ) ranked
-       WHERE matricula = ?`,
+      `SELECT a1.matricula,
+              a1.nickname,
+              a1.avatar,
+              a1.escola,
+              a1.partidas_pvp,
+              a1.vitorias_pvp,
+              a1.partidas_pvp AS partidas,
+              a1.vitorias_pvp AS vitorias,
+              a1.pontos,
+              (
+                SELECT COUNT(*) + 1
+                FROM alunos a2
+                WHERE a2.ticket = a1.ticket
+                  AND (
+                    a2.pontos > a1.pontos
+                    OR (a2.pontos = a1.pontos AND a2.matricula < a1.matricula)
+                  )
+              ) AS rank
+       FROM alunos a1
+       WHERE a1.ticket = ?
+         AND a1.matricula = ?
+       LIMIT 1`,
       [ticket, matricula]
     );
     if (result.rowCount === 0) {
