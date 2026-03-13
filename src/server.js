@@ -531,7 +531,8 @@ app.get("/leaderboard/top", async (req, res) => {
       return res.status(400).json({ message: "ticket is required" });
     }
 
-    const limit = Math.min(Math.max(parseInt(req.query.limit) || 10, 1), 100);
+    const parsedLimit = Number.parseInt(String(req.query.limit ?? ""), 10);
+    const limit = Math.min(Math.max(Number.isNaN(parsedLimit) ? 10 : parsedLimit, 1), 100);
     const result = await query(
       `SELECT a1.matricula,
               a1.nickname,
@@ -551,8 +552,8 @@ app.get("/leaderboard/top", async (req, res) => {
        FROM alunos a1
        WHERE a1.ticket = ?
        ORDER BY a1.pontos DESC, a1.matricula ASC
-       LIMIT ?`,
-      [ticket, limit]
+       LIMIT ${limit}`,
+      [ticket]
     );
     return res.json(
       result.rows.map((row) => ({
