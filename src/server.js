@@ -555,8 +555,11 @@ app.post("/partidas", async (req, res) => {
       return res.status(400).json({ message: "matricula is required" });
     }
 
-    const duracoRaw = body.duracao !== undefined && body.duracao !== null ? Math.trunc(Number(body.duracao)) : null;
-    const duracao  = parseNonNegativeInt(duracoRaw, "duracao")  ?? 0;
+    const duracaoRaw = body.duracao !== undefined && body.duracao !== null ? Number(body.duracao) : 0;
+    if (Number.isNaN(duracaoRaw) || duracaoRaw < 0) {
+      return res.status(400).json({ message: "duracao must be a non-negative number" });
+    }
+    const duracao = Math.round(duracaoRaw * 100) / 100;
     const questoes = parseNonNegativeInt(body.questoes, "questoes") ?? 0;
     const acertos  = parseNonNegativeInt(body.acertos,  "acertos")  ?? 0;
 

@@ -5,7 +5,7 @@ CREATE TABLE IF NOT EXISTS partidas (
   id         INT AUTO_INCREMENT PRIMARY KEY,
   matricula  VARCHAR(20)    NOT NULL,
   data       DATETIME       NOT NULL DEFAULT CURRENT_TIMESTAMP,
-  duracao    INT            NOT NULL DEFAULT 0,   -- match duration in seconds
+  duracao    DECIMAL(6,2)   NOT NULL DEFAULT 0,   -- match duration in seconds
   questoes   INT            NOT NULL DEFAULT 0,   -- total questions presented
   acertos    INT            NOT NULL DEFAULT 0,   -- correct answers
   tempo      DECIMAL(6,2)   NOT NULL DEFAULT 0,   -- average seconds per question
