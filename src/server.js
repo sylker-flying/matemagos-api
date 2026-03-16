@@ -157,12 +157,6 @@ const ALUNOS_SELECTABLE_FIELDS = new Set([
   "escola",
   "ano",
   "turma",
-  "partidas_pve",
-  "partidas_pvp",
-  "vitorias_pve",
-  "vitorias_pvp",
-  "questoes",
-  "acertos",
   "pontos",
   "progresso",
   "device",
@@ -357,50 +351,8 @@ app.put("/device-id/reset", async (req, res) => {
 app.put("/alunos/:matricula/stats", async (req, res) => {
   try {
     const { matricula } = req.params;
-    const {
-      partidas_pve,
-      partidas_pvp,
-      vitorias_pve,
-      vitorias_pvp,
-      questoes,
-      acertos,
-      pontos,
-      progresso,
-      // Legacy compatibility fields used by older Unity clients.
-      partidas,
-      vitorias,
-      derrotas,
-      erros
-    } = req.body;
+    const { pontos, progresso } = req.body;
 
-    const parsedPartidasPve = parseNonNegativeInt(partidas_pve, "partidas_pve");
-    let parsedPartidasPvp = parseNonNegativeInt(
-      partidas_pvp ?? partidas,
-      "partidas_pvp"
-    );
-    const parsedVitoriasPve = parseNonNegativeInt(vitorias_pve, "vitorias_pve");
-    const parsedVitoriasPvp = parseNonNegativeInt(
-      vitorias_pvp ?? vitorias,
-      "vitorias_pvp"
-    );
-
-    if (parsedPartidasPvp === null) {
-      const parsedDerrotas = parseNonNegativeInt(derrotas, "derrotas");
-      if (parsedVitoriasPvp !== null && parsedDerrotas !== null) {
-        parsedPartidasPvp = parsedVitoriasPvp + parsedDerrotas;
-      }
-    }
-
-    let parsedQuestoes = parseNonNegativeInt(questoes, "questoes");
-    if (parsedQuestoes === null) {
-      const parsedErros = parseNonNegativeInt(erros, "erros");
-      const parsedAcertosCandidate = parseNonNegativeInt(acertos, "acertos");
-      if (parsedErros !== null && parsedAcertosCandidate !== null) {
-        parsedQuestoes = parsedAcertosCandidate + parsedErros;
-      }
-    }
-
-    const parsedAcertos = parseNonNegativeInt(acertos, "acertos");
     const parsedPontos = parseNonNegativeInt(pontos, "pontos");
     const parsedProgresso = parseProgress(progresso);
 
@@ -413,27 +365,11 @@ app.put("/alunos/:matricula/stats", async (req, res) => {
       `
       UPDATE alunos
       SET
-        partidas_pve = COALESCE(?, partidas_pve),
-        partidas_pvp = COALESCE(?, partidas_pvp),
-        vitorias_pve = COALESCE(?, vitorias_pve),
-        vitorias_pvp = COALESCE(?, vitorias_pvp),
-        questoes = COALESCE(?, questoes),
-        acertos = COALESCE(?, acertos),
         pontos = COALESCE(?, pontos),
         progresso = COALESCE(?, progresso)
       WHERE matricula = ?
       `,
-      [
-        parsedPartidasPve,
-        parsedPartidasPvp,
-        parsedVitoriasPve,
-        parsedVitoriasPvp,
-        parsedQuestoes,
-        parsedAcertos,
-        parsedPontos,
-        parsedProgresso,
-        matricula
-      ]
+      [parsedPontos, parsedProgresso, matricula]
     );
 
     const updatedAluno = await findAlunoByMatricula(matricula);
@@ -537,8 +473,7 @@ app.get("/leaderboard/top", async (req, res) => {
       `SELECT a1.matricula,
               a1.nickname,
               a1.pontos,
-              a1.vitorias_pvp,
-              a1.vitorias_pvp AS vitorias,
+              0 AS vitorias,
               a1.escola,
               (
                 SELECT COUNT(*) + 1
@@ -580,10 +515,8 @@ app.get("/leaderboard/rank/:matricula", async (req, res) => {
               a1.nickname,
               a1.avatar,
               a1.escola,
-              a1.partidas_pvp,
-              a1.vitorias_pvp,
-              a1.partidas_pvp AS partidas,
-              a1.vitorias_pvp AS vitorias,
+              0 AS partidas,
+              0 AS vitorias,
               a1.pontos,
               (
                 SELECT COUNT(*) + 1
