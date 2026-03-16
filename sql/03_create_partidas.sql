@@ -9,7 +9,6 @@ CREATE TABLE IF NOT EXISTS partidas (
   questoes   INT            NOT NULL DEFAULT 0,   -- total questions presented
   acertos    INT            NOT NULL DEFAULT 0,   -- correct answers
   tempo      DECIMAL(6,2)   NOT NULL DEFAULT 0,   -- average seconds per question
-  habilidade VARCHAR(50)    NOT NULL DEFAULT '',  -- skill/topic identifier
   vitoria    TINYINT(1)     NOT NULL DEFAULT 0,   -- 1 = won, 0 = lost/draw
   pvp        TINYINT(1)     NOT NULL DEFAULT 0,   -- 1 = PvP, 0 = PvE
   INDEX idx_partidas_matricula (matricula)

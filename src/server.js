@@ -565,16 +565,13 @@ app.post("/partidas", async (req, res) => {
     }
     const tempo = Math.round(tempoRaw * 100) / 100;
 
-    const habilidade = body.habilidade !== undefined && body.habilidade !== null
-      ? String(body.habilidade).trim()
-      : "";
     const vitoria = body.vitoria ? 1 : 0;
     const pvp     = body.pvp     ? 1 : 0;
 
     const result = await query(
-      `INSERT INTO partidas (matricula, duracao, questoes, acertos, tempo, habilidade, vitoria, pvp)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-      [matricula, duracao, questoes, acertos, tempo, habilidade, vitoria, pvp]
+      `INSERT INTO partidas (matricula, duracao, questoes, acertos, tempo, vitoria, pvp)
+       VALUES (?, ?, ?, ?, ?, ?, ?)`,
+      [matricula, duracao, questoes, acertos, tempo, vitoria, pvp]
     );
 
     return res.status(201).json({ id: result.insertId, matricula });
@@ -595,7 +592,7 @@ app.get("/partidas", async (req, res) => {
     const limit = Number.isFinite(limitRaw) && limitRaw > 0 ? Math.min(limitRaw, 200) : 50;
 
     const result = await query(
-      `SELECT id, matricula, data, duracao, questoes, acertos, tempo, habilidade, vitoria, pvp
+      `SELECT id, matricula, data, duracao, questoes, acertos, tempo, vitoria, pvp
        FROM partidas
        WHERE matricula = ?
        ORDER BY data DESC
