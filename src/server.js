@@ -129,7 +129,8 @@ async function query(sql, params = []) {
   return {
     rows: [],
     rowCount: Number(result.affectedRows || 0),
-    affectedRows: Number(result.affectedRows || 0)
+    affectedRows: Number(result.affectedRows || 0),
+    insertId: result.insertId ?? null
   };
 }
 
@@ -540,6 +541,69 @@ app.get("/leaderboard/rank/:matricula", async (req, res) => {
       ...result.rows[0],
       rank: result.rows[0].rank_pos
     });
+  } catch (error) {
+    return res.status(500).json({ message: error.message });
+  }
+});
+
+// POST /partidas — record a new match result
+app.post("/partidas", async (req, res) => {
+  try {
+    const body = req.body || {};
+    const matricula = normalizeMatricula(body);
+    if (!matricula) {
+      return res.status(400).json({ message: "matricula is required" });
+    }
+
+    const duracao  = parseNonNegativeInt(body.duracao,  "duracao")  ?? 0;
+    const questoes = parseNonNegativeInt(body.questoes, "questoes") ?? 0;
+    const acertos  = parseNonNegativeInt(body.acertos,  "acertos")  ?? 0;
+
+    const tempoRaw = body.tempo !== undefined && body.tempo !== null ? Number(body.tempo) : 0;
+    if (Number.isNaN(tempoRaw) || tempoRaw < 0) {
+      return res.status(400).json({ message: "tempo must be a non-negative number" });
+    }
+    const tempo = Math.round(tempoRaw * 100) / 100;
+
+    const habilidade = body.habilidade !== undefined && body.habilidade !== null
+      ? String(body.habilidade).trim()
+      : "";
+    const vitoria = body.vitoria ? 1 : 0;
+    const pvp     = body.pvp     ? 1 : 0;
+
+    const result = await query(
+      `INSERT INTO partidas (matricula, duracao, questoes, acertos, tempo, habilidade, vitoria, pvp)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+      [matricula, duracao, questoes, acertos, tempo, habilidade, vitoria, pvp]
+    );
+
+    return res.status(201).json({ id: result.insertId, matricula });
+  } catch (error) {
+    return res.status(500).json({ message: error.message });
+  }
+});
+
+// GET /partidas?matricula=... — fetch match history for a player
+app.get("/partidas", async (req, res) => {
+  try {
+    const matricula = typeof req.query.matricula === "string" ? req.query.matricula.trim() : "";
+    if (!matricula) {
+      return res.status(400).json({ message: "matricula is required" });
+    }
+
+    const limitRaw = parseInt(req.query.limit, 10);
+    const limit = Number.isFinite(limitRaw) && limitRaw > 0 ? Math.min(limitRaw, 200) : 50;
+
+    const result = await query(
+      `SELECT id, matricula, data, duracao, questoes, acertos, tempo, habilidade, vitoria, pvp
+       FROM partidas
+       WHERE matricula = ?
+       ORDER BY data DESC
+       LIMIT ${limit}`,
+      [matricula]
+    );
+
+    return res.json(result.rows);
   } catch (error) {
     return res.status(500).json({ message: error.message });
   }
