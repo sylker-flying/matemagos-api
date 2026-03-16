@@ -555,7 +555,8 @@ app.post("/partidas", async (req, res) => {
       return res.status(400).json({ message: "matricula is required" });
     }
 
-    const duracao  = parseNonNegativeInt(body.duracao,  "duracao")  ?? 0;
+    const duracoRaw = body.duracao !== undefined && body.duracao !== null ? Math.trunc(Number(body.duracao)) : null;
+    const duracao  = parseNonNegativeInt(duracoRaw, "duracao")  ?? 0;
     const questoes = parseNonNegativeInt(body.questoes, "questoes") ?? 0;
     const acertos  = parseNonNegativeInt(body.acertos,  "acertos")  ?? 0;
 
