@@ -619,6 +619,61 @@ app.get("/partidas", async (req, res) => {
   }
 });
 
+// POST /habilidades — record skill performance from a match
+app.post("/habilidades", async (req, res) => {
+  try {
+    const body = req.body || {};
+    const matricula = normalizeMatricula(body);
+    const ticket = typeof body.ticket === "string" ? body.ticket.trim() : "";
+    const habilidade = typeof body.habilidade === "string" ? body.habilidade.trim().toUpperCase() : "";
+
+    if (!matricula) {
+      return res.status(400).json({ message: "matricula is required" });
+    }
+
+    if (!habilidade) {
+      return res.status(400).json({ message: "habilidade is required" });
+    }
+
+    const tentativas = parseNonNegativeInt(body.tentativas, "tentativas") ?? 0;
+    const acertos = parseNonNegativeInt(body.acertos, "acertos") ?? 0;
+
+    const performanceRaw = body.performance !== undefined && body.performance !== null 
+      ? Number(body.performance) 
+      : 0;
+    
+    if (Number.isNaN(performanceRaw) || performanceRaw < 0 || performanceRaw > 1) {
+      return res.status(400).json({ message: "performance must be a number between 0 and 1" });
+    }
+
+    const performance = Math.round(performanceRaw * 10000) / 10000;
+
+    // Upsert: insert or update on duplicate key
+    const result = await query(
+      `INSERT INTO habilidades (matricula, ticket, habilidade, performance, tentativas, acertos, data)
+       VALUES (?, ?, ?, ?, ?, ?, NOW())
+       ON DUPLICATE KEY UPDATE
+         tentativas = tentativas + VALUES(tentativas),
+         acertos = acertos + VALUES(acertos),
+         performance = LEAST(1.0, acertos / tentativas),
+         ticket = COALESCE(VALUES(ticket), ticket),
+         data = NOW()`,
+      [matricula, ticket || null, habilidade, performance, tentativas, acertos]
+    );
+
+    return res.status(201).json({
+      id: result.insertId,
+      matricula,
+      habilidade,
+      tentativas,
+      acertos,
+      performance
+    });
+  } catch (error) {
+    return res.status(500).json({ message: error.message });
+  }
+});
+
 app.listen(port, () => {
   console.log(`Matemagos API listening on port ${port}`);
 });
