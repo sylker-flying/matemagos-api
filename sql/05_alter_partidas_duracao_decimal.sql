@@ -1,19 +1,18 @@
 -- Migration: ensure partidas.duracao supports decimal values
 
-SET @col_exists := (
-  SELECT COUNT(*)
-  FROM information_schema.columns
-  WHERE table_schema = DATABASE()
-    AND table_name = 'partidas'
-    AND column_name = 'duracao'
-);
+SET search_path TO flying, public;
 
-SET @stmt := IF(
-  @col_exists > 0,
-  'ALTER TABLE partidas MODIFY COLUMN duracao DECIMAL(6,2) NOT NULL DEFAULT 0',
-  'SELECT 1'
-);
-
-PREPARE migration_stmt FROM @stmt;
-EXECUTE migration_stmt;
-DEALLOCATE PREPARE migration_stmt;
+DO $$
+BEGIN
+  IF EXISTS (
+    SELECT 1
+    FROM information_schema.columns
+    WHERE table_schema = current_schema()
+      AND table_name = 'partidas'
+      AND column_name = 'duracao'
+  ) THEN
+    ALTER TABLE partidas
+      ALTER COLUMN duracao TYPE NUMERIC(6,2),
+      ALTER COLUMN duracao SET DEFAULT 0;
+  END IF;
+END $$;

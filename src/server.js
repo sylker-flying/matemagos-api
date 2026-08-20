@@ -3,7 +3,7 @@ const cors = require("cors");
 const helmet = require("helmet");
 const dotenv = require("dotenv");
 const crypto = require("crypto");
-const mysql = require("mysql2/promise");
+const { Pool } = require("pg");
 
 dotenv.config();
 
@@ -34,27 +34,35 @@ function normalizeMultilineEnvValue(value) {
   return String(value).replace(/\\n/g, "\n").trim();
 }
 
-function getMysqlSslOptions() {
-  const sslEnabled = toBool(process.env.MYSQL_SSL, true);
+function getPostgresSslOptions() {
+  const sslEnabled = toBool(
+    process.env.PG_SSL ?? process.env.DB_SSL,
+    false
+  );
   if (!sslEnabled) {
     return undefined;
   }
 
   const rejectUnauthorized = toBool(
-    process.env.MYSQL_SSL_REJECT_UNAUTHORIZED,
-    true
+    process.env.PG_SSL_REJECT_UNAUTHORIZED ??
+      process.env.DB_SSL_REJECT_UNAUTHORIZED,
+    false
   );
   const sslOptions = {
     rejectUnauthorized
   };
 
-  const caFromEnv = normalizeMultilineEnvValue(process.env.MYSQL_SSL_CA);
+  const caFromEnv = normalizeMultilineEnvValue(
+    process.env.PG_SSL_CA ?? process.env.DB_SSL_CA
+  );
   if (caFromEnv) {
     sslOptions.ca = caFromEnv;
     return sslOptions;
   }
 
-  const caBase64 = normalizeMultilineEnvValue(process.env.MYSQL_SSL_CA_BASE64);
+  const caBase64 = normalizeMultilineEnvValue(
+    process.env.PG_SSL_CA_BASE64 ?? process.env.DB_SSL_CA_BASE64
+  );
   if (caBase64) {
     sslOptions.ca = Buffer.from(caBase64, "base64").toString("utf8");
   }
@@ -62,10 +70,29 @@ function getMysqlSslOptions() {
   return sslOptions;
 }
 
-function createMysqlPoolFromEnv() {
-  const sslOptions = getMysqlSslOptions();
+function getDatabaseSchema() {
+  const schema =
+    process.env.DB_SCHEMA ||
+    process.env.PG_SCHEMA ||
+    process.env.PGSCHEMA ||
+    "public";
 
-  const rawConnectionUrls = [process.env.MYSQL_URL, process.env.DATABASE_URL].filter(
+  if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(schema)) {
+    throw new Error(
+      "Invalid DB schema name. Use only letters, numbers, and underscores."
+    );
+  }
+
+  return schema;
+}
+
+function createPostgresPoolFromEnv() {
+  const sslOptions = getPostgresSslOptions();
+  const schema = getDatabaseSchema();
+  const options = `-c search_path=${schema},public`;
+  const max = Number(process.env.DB_POOL_SIZE || 10);
+
+  const rawConnectionUrls = [process.env.POSTGRES_URL, process.env.DATABASE_URL].filter(
     Boolean
   );
 
@@ -77,60 +104,53 @@ function createMysqlPoolFromEnv() {
       continue;
     }
 
-    if (!["mysql:", "mysql2:"].includes(parsed.protocol)) {
+    if (!["postgres:", "postgresql:"].includes(parsed.protocol)) {
       continue;
     }
 
-    return mysql.createPool({
-      host: parsed.hostname,
-      port: Number(parsed.port || 3306),
-      user: decodeURIComponent(parsed.username),
-      password: decodeURIComponent(parsed.password),
-      database: parsed.pathname.replace(/^\//, ""),
+    return new Pool({
+      connectionString: rawUrl,
       ssl: sslOptions,
-      waitForConnections: true,
-      connectionLimit: Number(process.env.DB_POOL_SIZE || 10),
-      queueLimit: 0
+      max,
+      options
     });
   }
 
-  if (process.env.DATABASE_URL && !process.env.MYSQL_URL) {
+  if (process.env.DATABASE_URL && !process.env.POSTGRES_URL) {
     console.warn(
-      "Ignoring non-MySQL DATABASE_URL. Set MYSQL_URL or MYSQLHOST/MYSQLPORT/MYSQLUSER/MYSQLPASSWORD/MYSQLDATABASE."
+      "Ignoring non-PostgreSQL DATABASE_URL. Set POSTGRES_URL or PGHOST/PGPORT/PGUSER/PGPASSWORD/PGDATABASE."
     );
   }
 
-  return mysql.createPool({
-    host: process.env.MYSQLHOST || process.env.DB_HOST,
-    port: Number(process.env.MYSQLPORT || process.env.DB_PORT || 3306),
-    user: process.env.MYSQLUSER || process.env.DB_USER,
-    password: process.env.MYSQLPASSWORD || process.env.DB_PASSWORD,
-    database: process.env.MYSQLDATABASE || process.env.DB_NAME,
+  return new Pool({
+    host: process.env.PGHOST || process.env.DB_HOST,
+    port: Number(process.env.PGPORT || process.env.DB_PORT || 5432),
+    user: process.env.PGUSER || process.env.DB_USER,
+    password: process.env.PGPASSWORD || process.env.DB_PASSWORD,
+    database: process.env.PGDATABASE || process.env.DB_NAME,
     ssl: sslOptions,
-    waitForConnections: true,
-    connectionLimit: Number(process.env.DB_POOL_SIZE || 10),
-    queueLimit: 0
+    max,
+    options
   });
 }
 
-const pool = createMysqlPoolFromEnv();
+const pool = createPostgresPoolFromEnv();
+
+function toPgPlaceholders(sql) {
+  let placeholderIndex = 0;
+  return sql.replace(/\?/g, () => {
+    placeholderIndex += 1;
+    return `$${placeholderIndex}`;
+  });
+}
 
 async function query(sql, params = []) {
-  const [result] = await pool.execute(sql, params);
-
-  if (Array.isArray(result)) {
-    return {
-      rows: result,
-      rowCount: result.length,
-      affectedRows: result.length
-    };
-  }
-
+  const result = await pool.query(toPgPlaceholders(sql), params);
   return {
-    rows: [],
-    rowCount: Number(result.affectedRows || 0),
-    affectedRows: Number(result.affectedRows || 0),
-    insertId: result.insertId ?? null
+    rows: result.rows,
+    rowCount: Number(result.rowCount || 0),
+    affectedRows: Number(result.rowCount || 0),
+    insertId: result.rows[0]?.id ?? null
   };
 }
 
@@ -450,7 +470,7 @@ app.put("/alunos/:matricula", async (req, res) => {
 
     return res.json(updatedAluno);
   } catch (error) {
-    if (error.code === "ER_DUP_ENTRY" || error.errno === 1062) {
+    if (error.code === "23505") {
       return res.status(409).json({
         message: "Este nickname já está em uso. Tente um apelido diferente."
       });
@@ -575,7 +595,8 @@ app.post("/partidas", async (req, res) => {
 
     const result = await query(
       `INSERT INTO partidas (matricula, ticket, duracao, questoes, acertos, tempo, vitoria, pvp)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+      RETURNING id`,
       [matricula, ticket || null, duracao, questoes, acertos, tempo, vitoria, pvp]
     );
 
@@ -648,16 +669,24 @@ app.post("/habilidades", async (req, res) => {
 
     const performance = Math.round(performanceRaw * 10000) / 10000;
 
-    // Upsert: insert or update on duplicate key
+    // Upsert: insert or update on conflict
     const result = await query(
       `INSERT INTO habilidades (matricula, ticket, habilidade, performance, tentativas, acertos, data)
        VALUES (?, ?, ?, ?, ?, ?, NOW())
-       ON DUPLICATE KEY UPDATE
-         tentativas = tentativas + VALUES(tentativas),
-         acertos = acertos + VALUES(acertos),
-         performance = LEAST(1.0, acertos / tentativas),
-         ticket = COALESCE(VALUES(ticket), ticket),
-         data = NOW()`,
+      ON CONFLICT (matricula, habilidade) DO UPDATE
+      SET
+        tentativas = habilidades.tentativas + EXCLUDED.tentativas,
+        acertos = habilidades.acertos + EXCLUDED.acertos,
+        performance = LEAST(
+          1.0,
+          (
+            (habilidades.acertos + EXCLUDED.acertos)::decimal
+            / NULLIF(habilidades.tentativas + EXCLUDED.tentativas, 0)
+          )
+        ),
+        ticket = COALESCE(EXCLUDED.ticket, habilidades.ticket),
+        data = NOW()
+      RETURNING id`,
       [matricula, ticket || null, habilidade, performance, tentativas, acertos]
     );
 

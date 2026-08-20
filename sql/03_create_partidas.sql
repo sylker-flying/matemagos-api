@@ -1,17 +1,20 @@
 -- Migration: create partidas table
 -- Records individual match results per player.
 
+SET search_path TO flying, public;
+
 CREATE TABLE IF NOT EXISTS partidas (
-  id         INT AUTO_INCREMENT PRIMARY KEY,
+  id         BIGSERIAL PRIMARY KEY,
   matricula  VARCHAR(20)    NOT NULL,
   ticket     VARCHAR(50)    NULL,
-  data       DATETIME       NOT NULL DEFAULT CURRENT_TIMESTAMP,
-  duracao    DECIMAL(6,2)   NOT NULL DEFAULT 0,   -- match duration in seconds
-  questoes   INT            NOT NULL DEFAULT 0,   -- total questions presented
-  acertos    INT            NOT NULL DEFAULT 0,   -- correct answers
-  tempo      DECIMAL(6,2)   NOT NULL DEFAULT 0,   -- average seconds per question
-  vitoria    TINYINT(1)     NOT NULL DEFAULT 0,   -- 1 = won, 0 = lost/draw
-  pvp        TINYINT(1)     NOT NULL DEFAULT 0,   -- 1 = PvP, 0 = PvE
-  INDEX idx_partidas_matricula (matricula),
-  INDEX idx_partidas_ticket (ticket)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+  data       TIMESTAMP      NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  duracao    NUMERIC(6,2)   NOT NULL DEFAULT 0,
+  questoes   INT            NOT NULL DEFAULT 0,
+  acertos    INT            NOT NULL DEFAULT 0,
+  tempo      NUMERIC(6,2)   NOT NULL DEFAULT 0,
+  vitoria    SMALLINT       NOT NULL DEFAULT 0 CHECK (vitoria IN (0, 1)),
+  pvp        SMALLINT       NOT NULL DEFAULT 0 CHECK (pvp IN (0, 1))
+);
+
+CREATE INDEX IF NOT EXISTS idx_partidas_matricula ON partidas (matricula);
+CREATE INDEX IF NOT EXISTS idx_partidas_ticket ON partidas (ticket);

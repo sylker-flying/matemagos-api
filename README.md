@@ -1,6 +1,6 @@
 # Matemagos Backend API
 
-REST API gateway for Matemagos Unity game, connecting to Aiven MySQL database via Railway cloud platform.
+REST API gateway for Matemagos Unity game, connecting to a PostgreSQL database via Railway cloud platform.
 
 ## Architecture Overview
 
@@ -15,32 +15,33 @@ REST API gateway for Matemagos Unity game, connecting to Aiven MySQL database vi
 │   Railway Cloud Platform                      │
 │   ├─ Node.js Express API (src/server.js)     │
 │   │   └─ 5 REST Endpoints                    │
-│   └─ Environment: DATABASE_URL, MYSQL_SSL, MYSQL_SSL_REJECT_UNAUTHORIZED, MYSQL_SSL_CA, CORS_ORIGIN  │
+│   └─ Environment: DATABASE_URL, DB_SCHEMA, PG_SSL, PG_SSL_REJECT_UNAUTHORIZED, PG_SSL_CA, CORS_ORIGIN │
 └──────────┬───────────────────────────────────┘
-           │ MySQL Driver (mysql2)
+           │ PostgreSQL Driver (pg)
            ▼
 ┌──────────────────────────────────┐
-│ Aiven Cloud MySQL                │
-│ ├─ Host: <aiven-mysql-host>      │
-│ ├─ Port: <aiven-mysql-port> (SSL)│
-│ ├─ Database: matemagos           │
+│ PostgreSQL Database              │
+│ ├─ Host: 161.35.52.253           │
+│ ├─ Port: 55433                   │
+│ ├─ Database: flying_integratia   │
+│ ├─ Schema: flying                │
 │ └─ Table: alunos                 │
 └──────────────────────────────────┘
 ```
 
 ## Infrastructure
 
-### 1. MySQL Database (Aiven Cloud)
+### 1. PostgreSQL Database
 
-- **Provider**: Aiven.io
-- **Host**: `<your-aiven-mysql-host>:<your-aiven-mysql-port>`
-- **Database**: `matemagos`
+- **Host**: `161.35.52.253:55433`
+- **Database**: `flying_integratia`
+- **Schema**: `flying`
 - **Table**: `alunos`
-  - Primary key: `id` (auto increment)
+  - Primary key: `id` (bigserial)
   - Unique key: `matricula` (varchar)
   - Data: nome, nickname, avatar, sexo, nascimento, escola, ano, turma
   - Stats: vitorias, derrotas, acertos, erros, progresso
-- **SSL**: Enabled (`MYSQL_SSL=true`)
+- **SSL**: Optional (`PG_SSL=false` by default)
 
 ### 2. Backend API (Railway Cloud)
 
@@ -53,14 +54,14 @@ REST API gateway for Matemagos Unity game, connecting to Aiven MySQL database vi
 #### Environment Variables (Railway Dashboard → Variables):
 
 ```
-DATABASE_URL=mysql://<user>:<password>@<host>:<port>/<database>
-MYSQL_SSL=true
-MYSQL_SSL_REJECT_UNAUTHORIZED=true
-MYSQL_SSL_CA=-----BEGIN CERTIFICATE-----\n...\n-----END CERTIFICATE-----
+DATABASE_URL=postgresql://flying_app:<password>@161.35.52.253:55433/flying_integratia
+DB_SCHEMA=flying
+PG_SSL=false
+PG_SSL_REJECT_UNAUTHORIZED=false
 CORS_ORIGIN=*
 ```
 
-You can also use `MYSQL_SSL_CA_BASE64` instead of `MYSQL_SSL_CA` if copying a PEM block into Railway is inconvenient.
+You can also use `PG_SSL_CA_BASE64` instead of `PG_SSL_CA` if copying a PEM block into Railway is inconvenient.
 
 ### 3. Unity Client
 
@@ -72,7 +73,7 @@ You can also use `MYSQL_SSL_CA_BASE64` instead of `MYSQL_SSL_CA` if copying a PE
 ## Deployment Pipeline
 
 1. **Local Development**: 
-   - Set `.env` with Aiven credentials
+   - Set `.env` with PostgreSQL credentials
    - Run `npm run dev` (uses localhost:8080)
    - Test endpoints locally
 
@@ -87,9 +88,9 @@ You can also use `MYSQL_SSL_CA_BASE64` instead of `MYSQL_SSL_CA` if copying a PE
    - API available at `https://matemagos-api-production.up.railway.app`
 
 4. **Unity Connection**:
-   - Game reads `PostgresApiUrl` from Database.cs
+   - Game reads `ApiURL` from `Database.cs`
    - Calls Railway API endpoints via UnityWebRequest
-  - Data persists in Aiven MySQL
+  - Data persists in PostgreSQL
 
 ## Quick Start
 
@@ -105,26 +106,26 @@ npm install
 cp .env.example .env
 ```
 
-Set `DATABASE_URL` to your MySQL connection string.
+Set `DATABASE_URL` to your PostgreSQL connection string and `DB_SCHEMA` to the target schema.
 
-For proper certificate verification against Aiven, also set one of:
+If your PostgreSQL server requires TLS, also set one of:
 
 ```bash
-MYSQL_SSL_CA="-----BEGIN CERTIFICATE-----\n...\n-----END CERTIFICATE-----"
+PG_SSL_CA="-----BEGIN CERTIFICATE-----\n...\n-----END CERTIFICATE-----"
 ```
 
 or:
 
 ```bash
-MYSQL_SSL_CA_BASE64="<base64-encoded-pem>"
+PG_SSL_CA_BASE64="<base64-encoded-pem>"
 ```
 
-### 2.1 Create Schema (Aiven MySQL)
+### 2.1 Create Schema (PostgreSQL)
 
 Run:
 
 ```bash
-mysql --host=<host> --port=<port> --user=<user> --password <database> < sql/01_create_alunos_mysql.sql
+psql "postgresql://flying_app:<password>@161.35.52.253:55433/flying_integratia" -f sql/01_create_alunos_mysql.sql
 ```
 
 ### 3. Run Locally

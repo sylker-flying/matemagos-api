@@ -1,5 +1,8 @@
+CREATE SCHEMA IF NOT EXISTS flying;
+SET search_path TO flying, public;
+
 CREATE TABLE IF NOT EXISTS alunos (
-    id BIGINT AUTO_INCREMENT PRIMARY KEY,
+    id BIGSERIAL PRIMARY KEY,
     matricula VARCHAR(50) NOT NULL UNIQUE,
     nome VARCHAR(120),
     nickname VARCHAR(80),
@@ -16,11 +19,25 @@ CREATE TABLE IF NOT EXISTS alunos (
     questoes INT NOT NULL DEFAULT 0,
     acertos INT NOT NULL DEFAULT 0,
     pontos INT NOT NULL DEFAULT 0,
-    progresso DECIMAL(5,2) NOT NULL DEFAULT 0,
+    progresso NUMERIC(5,2) NOT NULL DEFAULT 0,
     device VARCHAR(120),
     ticket VARCHAR(120),
-    validade DATETIME,
+    validade TIMESTAMP,
     criado_em TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    atualizado_em TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-    UNIQUE KEY matricula_unique_idx (matricula)
+    atualizado_em TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
+
+CREATE OR REPLACE FUNCTION set_atualizado_em()
+RETURNS TRIGGER AS $$
+BEGIN
+    NEW.atualizado_em = CURRENT_TIMESTAMP;
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+DROP TRIGGER IF EXISTS alunos_set_atualizado_em ON alunos;
+
+CREATE TRIGGER alunos_set_atualizado_em
+BEFORE UPDATE ON alunos
+FOR EACH ROW
+EXECUTE FUNCTION set_atualizado_em();
