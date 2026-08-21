@@ -767,7 +767,17 @@ app.get("/questoes/random", async (req, res) => {
       return res.status(404).json({ message: "No questions available for the specified filters" });
     }
 
-    return res.json(result.rows[0]);
+    const question = result.rows[0];
+    const combinedQuestao = [question.contexto, question.questao]
+      .filter((value) => value !== null && value !== undefined && String(value).trim() !== '')
+      .join('\n\n');
+
+    return res.json({
+      ...question,
+      questao: combinedQuestao || question.questao,
+      questao_original: question.questao,
+      contexto_original: question.contexto
+    });
   } catch (error) {
     return res.status(500).json({ message: error.message });
   }
