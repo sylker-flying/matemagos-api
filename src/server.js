@@ -705,29 +705,52 @@ app.post("/habilidades", async (req, res) => {
 
 app.get("/questoes/random", async (req, res) => {
   try {
-    const { disciplina, etapa, sem_imagem } = req.query;
-    
+    const { disciplina, etapa, sem_imagem, requer_imagem } = req.query;
+
+    const normalizeBoolean = (value) => {
+      if (value === undefined || value === null || value === '') {
+        return null;
+      }
+
+      const normalized = String(value).trim().toLowerCase();
+      if (['true', '1', 'yes', 'y'].includes(normalized)) {
+        return true;
+      }
+      if (['false', '0', 'no', 'n'].includes(normalized)) {
+        return false;
+      }
+      return null;
+    };
+
     let whereConditions = [];
     let params = [];
-    
+
     if (disciplina) {
       whereConditions.push(`disciplina = $${whereConditions.length + 1}`);
       params.push(disciplina);
     }
-    
+
     if (etapa) {
       whereConditions.push(`etapa = $${whereConditions.length + 1}`);
       params.push(etapa);
     }
-    
-    if (sem_imagem && (sem_imagem === 'true' || sem_imagem === '1')) {
-      whereConditions.push('imagem IS NULL');
+
+    const explicitRequerImagem = normalizeBoolean(requer_imagem);
+    if (explicitRequerImagem !== null) {
+      whereConditions.push(`requer_imagem = $${whereConditions.length + 1}`);
+      params.push(explicitRequerImagem);
+    } else {
+      const noImageRequired = normalizeBoolean(sem_imagem);
+      if (noImageRequired === true) {
+        whereConditions.push(`requer_imagem = $${whereConditions.length + 1}`);
+        params.push(false);
+      }
     }
-    
-    const whereClause = whereConditions.length > 0 
-      ? `WHERE ${whereConditions.join(' AND ')}` 
+
+    const whereClause = whereConditions.length > 0
+      ? `WHERE ${whereConditions.join(' AND ')}`
       : '';
-    
+
     const result = await query(`
       SELECT 
         id, questao, alternativas, resposta, imagem, bncc, 
