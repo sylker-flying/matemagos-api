@@ -705,7 +705,7 @@ app.post("/habilidades", async (req, res) => {
 
 app.get("/questoes/random", async (req, res) => {
   try {
-    const { disciplina, etapa } = req.query;
+    const { disciplina, etapa, sem_imagem } = req.query;
     
     let whereConditions = [];
     let params = [];
@@ -718,6 +718,10 @@ app.get("/questoes/random", async (req, res) => {
     if (etapa) {
       whereConditions.push(`etapa = $${whereConditions.length + 1}`);
       params.push(etapa);
+    }
+    
+    if (sem_imagem && (sem_imagem === 'true' || sem_imagem === '1')) {
+      whereConditions.push('imagem IS NULL');
     }
     
     const whereClause = whereConditions.length > 0 
