@@ -703,8 +703,27 @@ app.post("/habilidades", async (req, res) => {
   }
 });
 
-app.get("/questoes/random", async (_req, res) => {
+app.get("/questoes/random", async (req, res) => {
   try {
+    const { disciplina, etapa } = req.query;
+    
+    let whereConditions = [];
+    let params = [];
+    
+    if (disciplina) {
+      whereConditions.push(`disciplina = $${whereConditions.length + 1}`);
+      params.push(disciplina);
+    }
+    
+    if (etapa) {
+      whereConditions.push(`etapa = $${whereConditions.length + 1}`);
+      params.push(etapa);
+    }
+    
+    const whereClause = whereConditions.length > 0 
+      ? `WHERE ${whereConditions.join(' AND ')}` 
+      : '';
+    
     const result = await query(`
       SELECT 
         id, questao, alternativas, resposta, imagem, bncc, 
@@ -712,12 +731,13 @@ app.get("/questoes/random", async (_req, res) => {
         disciplina, etapa, descritor_saeb, gabarito_letra, 
         requer_imagem, fonte, fontes_adicionais, dados_origem
       FROM questoes
+      ${whereClause}
       ORDER BY RANDOM()
       LIMIT 1
-    `);
+    `, params);
 
     if (result.rows.length === 0) {
-      return res.status(404).json({ message: "No questions available" });
+      return res.status(404).json({ message: "No questions available for the specified filters" });
     }
 
     return res.json(result.rows[0]);
