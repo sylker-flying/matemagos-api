@@ -703,6 +703,29 @@ app.post("/habilidades", async (req, res) => {
   }
 });
 
+app.get("/questoes/random", async (_req, res) => {
+  try {
+    const result = await query(`
+      SELECT 
+        id, questao, alternativas, resposta, imagem, bncc, 
+        criado_em, atualizado_em, codigo_externo, contexto, 
+        disciplina, etapa, descritor_saeb, gabarito_letra, 
+        requer_imagem, fonte, fontes_adicionais, dados_origem
+      FROM questoes
+      ORDER BY RANDOM()
+      LIMIT 1
+    `);
+
+    if (result.rows.length === 0) {
+      return res.status(404).json({ message: "No questions available" });
+    }
+
+    return res.json(result.rows[0]);
+  } catch (error) {
+    return res.status(500).json({ message: error.message });
+  }
+});
+
 app.listen(port, () => {
   console.log(`Matemagos API listening on port ${port}`);
 });
