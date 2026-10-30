@@ -738,22 +738,7 @@ app.post("/habilidades", async (req, res) => {
 
 app.get("/questoes/random", async (req, res) => {
   try {
-    const { disciplina, etapa, sem_imagem, requer_imagem } = req.query;
-
-    const normalizeBoolean = (value) => {
-      if (value === undefined || value === null || value === '') {
-        return null;
-      }
-
-      const normalized = String(value).trim().toLowerCase();
-      if (['true', '1', 'yes', 'y'].includes(normalized)) {
-        return true;
-      }
-      if (['false', '0', 'no', 'n'].includes(normalized)) {
-        return false;
-      }
-      return null;
-    };
+    const { disciplina, etapa } = req.query;
 
     let whereConditions = [];
     let params = [];
@@ -768,18 +753,6 @@ app.get("/questoes/random", async (req, res) => {
       params.push(etapa);
     }
 
-    const explicitRequerImagem = normalizeBoolean(requer_imagem);
-    if (explicitRequerImagem !== null) {
-      whereConditions.push(`requer_imagem = $${whereConditions.length + 1}`);
-      params.push(explicitRequerImagem);
-    } else {
-      const noImageRequired = normalizeBoolean(sem_imagem);
-      if (noImageRequired === true) {
-        whereConditions.push(`requer_imagem = $${whereConditions.length + 1}`);
-        params.push(false);
-      }
-    }
-
     const whereClause = whereConditions.length > 0
       ? `WHERE ${whereConditions.join(' AND ')}`
       : '';
@@ -787,9 +760,7 @@ app.get("/questoes/random", async (req, res) => {
     const result = await query(`
       SELECT 
         id, questao, alternativas, resposta, imagem, bncc, 
-        criado_em, atualizado_em, codigo_externo, contexto, 
-        disciplina, etapa, descritor_saeb, gabarito_letra, 
-        requer_imagem, fonte, fontes_adicionais, dados_origem
+        contexto, disciplina, etapa
       FROM questoes
       ${whereClause}
       ORDER BY RANDOM()
