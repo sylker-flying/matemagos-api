@@ -163,6 +163,33 @@ async function findAlunoByMatricula(matricula, selectClause = "*") {
   return result.rows[0] || null;
 }
 
+// validade comes from the tickets table (matched by alunos.ticket = tickets.nome).
+// acesso: "valido" | "expirado" | "inexistente" (no ticket, or ticket not in tickets).
+async function findAlunoComTicket(matricula) {
+  const result = await query(
+    `SELECT a.*,
+            t.validade AS ticket_validade,
+            CASE
+              WHEN t.nome IS NULL THEN 'inexistente'
+              WHEN t.validade IS NOT NULL AND t.validade::date < CURRENT_DATE THEN 'expirado'
+              ELSE 'valido'
+            END AS acesso
+       FROM alunos a
+       LEFT JOIN tickets t ON t.nome = TRIM(a.ticket)
+      WHERE a.matricula = ?
+      LIMIT 1`,
+    [matricula]
+  );
+
+  const row = result.rows[0];
+  if (!row) {
+    return null;
+  }
+
+  const { ticket_validade, ...aluno } = row;
+  return { ...aluno, validade: ticket_validade };
+}
+
 app.use(helmet());
 app.use(cors({ origin: process.env.CORS_ORIGIN || "*" }));
 app.use(express.json({ limit: "1mb" }));
@@ -183,6 +210,7 @@ const ALUNOS_SELECTABLE_FIELDS = new Set([
   "device",
   "ticket",
   "validade",
+  "acesso",
   "criado_em",
   "atualizado_em"
 ]);
@@ -297,13 +325,21 @@ app.get("/alunos/:matricula", async (req, res) => {
   try {
     const { matricula } = req.params;
     const selectClause = buildAlunoSelectClause(req.query.select);
-    const aluno = await findAlunoByMatricula(matricula, selectClause);
+    const aluno = await findAlunoComTicket(matricula);
 
     if (!aluno) {
       return res.status(404).json({ message: "aluno not found" });
     }
 
-    return res.json(aluno);
+    if (selectClause === "*") {
+      return res.json(aluno);
+    }
+
+    return res.json(
+      Object.fromEntries(
+        selectClause.split(", ").map((field) => [field, aluno[field]])
+      )
+    );
   } catch (error) {
     return res.status(error.statusCode || 500).json({ message: error.message });
   }
@@ -393,7 +429,7 @@ app.put("/alunos/:matricula/stats", async (req, res) => {
       [parsedPontos, parsedProgresso, matricula]
     );
 
-    const updatedAluno = await findAlunoByMatricula(matricula);
+    const updatedAluno = await findAlunoComTicket(matricula);
 
     return res.json(updatedAluno);
   } catch (error) {
@@ -411,8 +447,7 @@ app.put("/alunos/:matricula", async (req, res) => {
       ano,
       turma,
       device,
-      ticket,
-      validade
+      ticket
     } = req.body;
 
     const normalizedNickname = normalizeNickname(nickname);
@@ -449,8 +484,7 @@ app.put("/alunos/:matricula", async (req, res) => {
         ano = COALESCE(?, ano),
         turma = COALESCE(?, turma),
         device = COALESCE(?, device),
-        ticket = COALESCE(?, ticket),
-        validade = COALESCE(?, validade)
+        ticket = COALESCE(?, ticket)
       WHERE matricula = ?
       `,
       [
@@ -461,12 +495,11 @@ app.put("/alunos/:matricula", async (req, res) => {
         turma ?? null,
         device ?? null,
         ticket ?? null,
-        validade ?? null,
         matricula
       ]
     );
 
-    const updatedAluno = await findAlunoByMatricula(matricula);
+    const updatedAluno = await findAlunoComTicket(matricula);
 
     return res.json(updatedAluno);
   } catch (error) {
