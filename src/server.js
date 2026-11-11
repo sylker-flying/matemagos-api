@@ -599,6 +599,8 @@ app.get("/leaderboard/rank/:matricula", async (req, res) => {
   }
 });
 
+const MAX_SECONDS = 999999.99;
+
 // POST /partidas — record a new match result
 app.post("/partidas", async (req, res) => {
   try {
@@ -616,12 +618,20 @@ app.post("/partidas", async (req, res) => {
     const duracao = Math.round(duracaoRaw * 100) / 100;
     const questoes = parseNonNegativeInt(body.questoes, "questoes") ?? 0;
     const acertos  = parseNonNegativeInt(body.acertos,  "acertos")  ?? 0;
+    if (acertos > questoes) {
+      return res.status(400).json({ message: "acertos must not exceed questoes" });
+    }
 
     const tempoRaw = body.tempo !== undefined && body.tempo !== null ? Number(body.tempo) : 0;
     if (Number.isNaN(tempoRaw) || tempoRaw < 0) {
       return res.status(400).json({ message: "tempo must be a non-negative number" });
     }
     const tempo = Math.round(tempoRaw * 100) / 100;
+
+    // duracao and tempo are NUMERIC(8,2) in flying.partidas.
+    if (duracao > MAX_SECONDS || tempo > MAX_SECONDS) {
+      return res.status(400).json({ message: `duracao and tempo must not exceed ${MAX_SECONDS}` });
+    }
 
     const vitoria = body.vitoria ? 1 : 0;
     const pvp     = body.pvp     ? 1 : 0;
@@ -659,7 +669,8 @@ app.get("/partidas", async (req, res) => {
     }
 
     const result = await query(
-      `SELECT id, matricula, ticket, data, duracao, questoes, acertos, tempo, vitoria, pvp
+      // float8 keeps duracao/tempo as JSON numbers (NUMERIC would come back as strings).
+      `SELECT id, matricula, ticket, data, duracao::float8 AS duracao, questoes, acertos, tempo::float8 AS tempo, vitoria, pvp
        FROM partidas
        WHERE ${whereClauses.join(" AND ")}
        ORDER BY data DESC
@@ -691,6 +702,9 @@ app.post("/habilidades", async (req, res) => {
 
     const tentativas = parseNonNegativeInt(body.tentativas, "tentativas") ?? 0;
     const acertos = parseNonNegativeInt(body.acertos, "acertos") ?? 0;
+    if (acertos > tentativas) {
+      return res.status(400).json({ message: "acertos must not exceed tentativas" });
+    }
 
     const performanceRaw = body.performance !== undefined && body.performance !== null 
       ? Number(body.performance) 
@@ -702,25 +716,14 @@ app.post("/habilidades", async (req, res) => {
 
     const performance = Math.round(performanceRaw * 10000) / 10000;
 
-    // Upsert: insert or update on conflict
+    // One row per skill per match: flying.habilidades is an event log, and
+    // atualizado_em (set by its default) is the event time. performance is
+    // received as 0–1 and stored as 0–100.
     const result = await query(
-      `INSERT INTO habilidades (matricula, ticket, habilidade, performance, tentativas, acertos, data)
-       VALUES (?, ?, ?, ?, ?, ?, NOW())
-      ON CONFLICT (matricula, habilidade) DO UPDATE
-      SET
-        tentativas = habilidades.tentativas + EXCLUDED.tentativas,
-        acertos = habilidades.acertos + EXCLUDED.acertos,
-        performance = LEAST(
-          1.0,
-          (
-            (habilidades.acertos + EXCLUDED.acertos)::decimal
-            / NULLIF(habilidades.tentativas + EXCLUDED.tentativas, 0)
-          )
-        ),
-        ticket = COALESCE(EXCLUDED.ticket, habilidades.ticket),
-        data = NOW()
-      RETURNING id`,
-      [matricula, ticket || null, habilidade, performance, tentativas, acertos]
+      `INSERT INTO habilidades (matricula, ticket, habilidade, performance, tentativas, acertos)
+       VALUES (?, ?, ?, ?, ?, ?)
+       RETURNING id`,
+      [matricula, ticket || null, habilidade, Math.round(performance * 10000) / 100, tentativas, acertos]
     );
 
     return res.status(201).json({
