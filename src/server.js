@@ -513,6 +513,16 @@ app.put("/alunos/:matricula", async (req, res) => {
   }
 });
 
+// Display name for leaderboards: first name + last-name initial ("Ana Maria Silva" -> "Ana S.").
+// Full names never leave the server since leaderboards are visible to other students.
+const NOME_NORMALIZED_SQL = `REGEXP_REPLACE(TRIM(COALESCE(a1.nome, '')), '\\s+', ' ', 'g')`;
+const SHORT_NOME_SQL = `CASE
+                WHEN POSITION(' ' IN ${NOME_NORMALIZED_SQL}) > 0
+                  THEN SPLIT_PART(${NOME_NORMALIZED_SQL}, ' ', 1) || ' ' ||
+                       UPPER(LEFT(REGEXP_REPLACE(${NOME_NORMALIZED_SQL}, '^.* ', ''), 1)) || '.'
+                ELSE ${NOME_NORMALIZED_SQL}
+              END`;
+
 // GET /leaderboard/top?limit=N  — top N players by pontos desc
 app.get("/leaderboard/top", async (req, res) => {
   try {
@@ -525,7 +535,7 @@ app.get("/leaderboard/top", async (req, res) => {
     const limit = Math.min(Math.max(Number.isNaN(parsedLimit) ? 10 : parsedLimit, 1), 100);
     const result = await query(
       `SELECT a1.matricula,
-              SPLIT_PART(TRIM(COALESCE(a1.nome, '')), ' ', 1) AS nome,
+              ${SHORT_NOME_SQL} AS nome,
               a1.pontos,
               0 AS vitorias,
               a1.escola,
@@ -566,7 +576,7 @@ app.get("/leaderboard/rank/:matricula", async (req, res) => {
 
     const result = await query(
       `SELECT a1.matricula,
-              SPLIT_PART(TRIM(COALESCE(a1.nome, '')), ' ', 1) AS nome,
+              ${SHORT_NOME_SQL} AS nome,
               a1.avatar,
               a1.escola,
               0 AS partidas,
