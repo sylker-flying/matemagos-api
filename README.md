@@ -21,7 +21,7 @@ REST API gateway for Matemagos Unity game, connecting to a PostgreSQL database v
            ▼
 ┌──────────────────────────────────┐
 │ PostgreSQL Database              │
-│ ├─ Host: 161.35.52.253           │
+│ ├─ Host: 157.245.87.116           │
 │ ├─ Port: 55433                   │
 │ ├─ Database: flying_integratia   │
 │ ├─ Schema: flying                │
@@ -33,7 +33,7 @@ REST API gateway for Matemagos Unity game, connecting to a PostgreSQL database v
 
 ### 1. PostgreSQL Database
 
-- **Host**: `161.35.52.253:55433`
+- **Host**: `157.245.87.116:55433`
 - **Database**: `flying_integratia`
 - **Schema**: `flying`
 - **Table**: `alunos`
@@ -54,7 +54,7 @@ REST API gateway for Matemagos Unity game, connecting to a PostgreSQL database v
 #### Environment Variables (Railway Dashboard → Variables):
 
 ```
-DATABASE_URL=postgresql://flying_app:<password>@161.35.52.253:55433/flying_integratia
+DATABASE_URL=postgresql://flying_app:<password>@157.245.87.116:55433/flying_integratia
 DB_SCHEMA=flying
 PG_SSL=false
 PG_SSL_REJECT_UNAUTHORIZED=false
@@ -125,7 +125,7 @@ PG_SSL_CA_BASE64="<base64-encoded-pem>"
 Run:
 
 ```bash
-psql "postgresql://flying_app:<password>@161.35.52.253:55433/flying_integratia" -f sql/01_create_alunos_mysql.sql
+psql "postgresql://flying_app:<password>@157.245.87.116:55433/flying_integratia" -f sql/01_create_alunos_mysql.sql
 ```
 
 ### 3. Run Locally
