@@ -525,7 +525,7 @@ app.get("/leaderboard/top", async (req, res) => {
     const limit = Math.min(Math.max(Number.isNaN(parsedLimit) ? 10 : parsedLimit, 1), 100);
     const result = await query(
       `SELECT a1.matricula,
-              a1.nickname,
+              SPLIT_PART(TRIM(COALESCE(a1.nome, '')), ' ', 1) AS nome,
               a1.pontos,
               0 AS vitorias,
               a1.escola,
@@ -566,7 +566,7 @@ app.get("/leaderboard/rank/:matricula", async (req, res) => {
 
     const result = await query(
       `SELECT a1.matricula,
-              a1.nickname,
+              SPLIT_PART(TRIM(COALESCE(a1.nome, '')), ' ', 1) AS nome,
               a1.avatar,
               a1.escola,
               0 AS partidas,
