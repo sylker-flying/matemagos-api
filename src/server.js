@@ -616,7 +616,6 @@ app.post("/partidas", async (req, res) => {
   try {
     const body = req.body || {};
     const matricula = normalizeMatricula(body);
-    const ticket = typeof body.ticket === "string" ? body.ticket.trim() : "";
     if (!matricula) {
       return res.status(400).json({ message: "matricula is required" });
     }
@@ -647,13 +646,13 @@ app.post("/partidas", async (req, res) => {
     const pvp     = body.pvp     ? 1 : 0;
 
     const result = await query(
-      `INSERT INTO partidas (matricula, ticket, duracao, questoes, acertos, tempo, vitoria, pvp)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+      `INSERT INTO partidas (matricula, duracao, questoes, acertos, tempo, vitoria, pvp)
+      VALUES (?, ?, ?, ?, ?, ?, ?)
       RETURNING id`,
-      [matricula, ticket || null, duracao, questoes, acertos, tempo, vitoria, pvp]
+      [matricula, duracao, questoes, acertos, tempo, vitoria, pvp]
     );
 
-    return res.status(201).json({ id: result.insertId, matricula, ticket: ticket || null });
+    return res.status(201).json({ id: result.insertId, matricula });
   } catch (error) {
     return res.status(500).json({ message: error.message });
   }
@@ -663,7 +662,6 @@ app.post("/partidas", async (req, res) => {
 app.get("/partidas", async (req, res) => {
   try {
     const matricula = typeof req.query.matricula === "string" ? req.query.matricula.trim() : "";
-    const ticket = typeof req.query.ticket === "string" ? req.query.ticket.trim() : "";
     if (!matricula) {
       return res.status(400).json({ message: "matricula is required" });
     }
@@ -671,21 +669,14 @@ app.get("/partidas", async (req, res) => {
     const limitRaw = parseInt(req.query.limit, 10);
     const limit = Number.isFinite(limitRaw) && limitRaw > 0 ? Math.min(limitRaw, 200) : 50;
 
-    const whereClauses = ["matricula = ?"];
-    const params = [matricula];
-    if (ticket) {
-      whereClauses.push("ticket = ?");
-      params.push(ticket);
-    }
-
     const result = await query(
       // float8 keeps duracao/tempo as JSON numbers (NUMERIC would come back as strings).
-      `SELECT id, matricula, ticket, data, duracao::float8 AS duracao, questoes, acertos, tempo::float8 AS tempo, vitoria, pvp
+      `SELECT id, matricula, data, duracao::float8 AS duracao, questoes, acertos, tempo::float8 AS tempo, vitoria, pvp
        FROM partidas
-       WHERE ${whereClauses.join(" AND ")}
+       WHERE matricula = ?
        ORDER BY data DESC
        LIMIT ${limit}`,
-      params
+      [matricula]
     );
 
     return res.json(result.rows);
@@ -699,7 +690,6 @@ app.post("/habilidades", async (req, res) => {
   try {
     const body = req.body || {};
     const matricula = normalizeMatricula(body);
-    const ticket = typeof body.ticket === "string" ? body.ticket.trim() : "";
     const habilidade = typeof body.habilidade === "string" ? body.habilidade.trim().toUpperCase() : "";
 
     if (!matricula) {
@@ -730,10 +720,10 @@ app.post("/habilidades", async (req, res) => {
     // atualizado_em (set by its default) is the event time. performance is
     // received as 0–1 and stored as 0–100.
     const result = await query(
-      `INSERT INTO habilidades (matricula, ticket, habilidade, performance, tentativas, acertos)
-       VALUES (?, ?, ?, ?, ?, ?)
+      `INSERT INTO habilidades (matricula, habilidade, performance, tentativas, acertos)
+       VALUES (?, ?, ?, ?, ?)
        RETURNING id`,
-      [matricula, ticket || null, habilidade, Math.round(performance * 10000) / 100, tentativas, acertos]
+      [matricula, habilidade, Math.round(performance * 10000) / 100, tentativas, acertos]
     );
 
     return res.status(201).json({
