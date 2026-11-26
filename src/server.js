@@ -611,6 +611,46 @@ app.get("/leaderboard/rank/:matricula", async (req, res) => {
 
 const MAX_SECONDS = 999999.99;
 
+// Code of this game in flying.jogos. Every row written by this API belongs to it.
+const GAME_CODE = process.env.GAME_CODE || "matemagos";
+const GENERATOR_PATTERN = /^[a-z0-9][a-z0-9_.-]{0,39}$/;
+
+// Where the answered question came from: the bank (questao_id) or the game's own generator (gerador).
+// Older game builds send neither, and the row is stored with origem empty, as before.
+function parseQuestionOrigin(body) {
+  const rawId = body.questao_id;
+  const rawGenerator = typeof body.gerador === "string" ? body.gerador.trim().toLowerCase() : "";
+  const hasId = rawId !== undefined && rawId !== null && String(rawId).trim() !== "";
+
+  if (hasId && rawGenerator) {
+    throw new HttpError(400, "send either questao_id or gerador, not both");
+  }
+
+  if (hasId) {
+    const questaoId = Number(rawId);
+    if (!Number.isSafeInteger(questaoId) || questaoId <= 0) {
+      throw new HttpError(400, "questao_id must be a positive integer");
+    }
+    return { origem: "acervo", questaoId, gerador: null };
+  }
+
+  if (rawGenerator) {
+    if (!GENERATOR_PATTERN.test(rawGenerator)) {
+      throw new HttpError(400, "gerador must be lowercase letters, digits, '.', '_' or '-' (up to 40)");
+    }
+    return { origem: "gerada", questaoId: null, gerador: rawGenerator };
+  }
+
+  return { origem: null, questaoId: null, gerador: null };
+}
+
+class HttpError extends Error {
+  constructor(status, message) {
+    super(message);
+    this.status = status;
+  }
+}
+
 // POST /partidas — record a new match result
 app.post("/partidas", async (req, res) => {
   try {
@@ -646,10 +686,10 @@ app.post("/partidas", async (req, res) => {
     const pvp     = body.pvp     ? 1 : 0;
 
     const result = await query(
-      `INSERT INTO partidas (matricula, duracao, questoes, acertos, tempo, vitoria, pvp)
-      VALUES (?, ?, ?, ?, ?, ?, ?)
+      `INSERT INTO partidas (matricula, duracao, questoes, acertos, tempo, vitoria, pvp, jogo)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?)
       RETURNING id`,
-      [matricula, duracao, questoes, acertos, tempo, vitoria, pvp]
+      [matricula, duracao, questoes, acertos, tempo, vitoria, pvp, GAME_CODE]
     );
 
     return res.status(201).json({ id: result.insertId, matricula });
@@ -715,15 +755,16 @@ app.post("/habilidades", async (req, res) => {
     }
 
     const performance = Math.round(performanceRaw * 10000) / 10000;
+    const { origem, questaoId, gerador } = parseQuestionOrigin(body);
 
     // One row per skill per match: flying.habilidades is an event log, and
     // atualizado_em (set by its default) is the event time. performance is
     // received as 0–1 and stored as 0–100.
     const result = await query(
-      `INSERT INTO habilidades (matricula, habilidade, performance, tentativas, acertos)
-       VALUES (?, ?, ?, ?, ?)
+      `INSERT INTO habilidades (matricula, habilidade, performance, tentativas, acertos, jogo, origem, questao_id, gerador)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
        RETURNING id`,
-      [matricula, habilidade, Math.round(performance * 10000) / 100, tentativas, acertos]
+      [matricula, habilidade, Math.round(performance * 10000) / 100, tentativas, acertos, GAME_CODE, origem, questaoId, gerador]
     );
 
     return res.status(201).json({
@@ -732,9 +773,19 @@ app.post("/habilidades", async (req, res) => {
       habilidade,
       tentativas,
       acertos,
-      performance
+      performance,
+      origem,
+      questao_id: questaoId,
+      gerador
     });
   } catch (error) {
+    if (error instanceof HttpError) {
+      return res.status(error.status).json({ message: error.message });
+    }
+    // 23503: questao_id not in flying.questoes (or matricula not in alunos).
+    if (error.code === "23503") {
+      return res.status(400).json({ message: error.constraint === "habilidades_questao_fk" ? "questao_id not found" : "matricula not found" });
+    }
     return res.status(500).json({ message: error.message });
   }
 });

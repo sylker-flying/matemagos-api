@@ -188,3 +188,18 @@ curl -X PUT http://localhost:8080/alunos/20260001/stats \
     "progresso": 50
   }'
 ```
+
+### Record skill performance (`POST /habilidades`)
+
+One row per BNCC code and question source in a match. `jogo` is set by the API (`GAME_CODE`, default `matemagos`, must exist in `flying.jogos`). Send at most one of:
+
+- `questao_id`: the bank question answered (`flying.questoes.id`, as returned by `GET /questoes/random`) → `origem = acervo`;
+- `gerador`: the game's generator and version (e.g. `fracoes-v1`, lowercase) → `origem = gerada`.
+
+Older game builds send neither and the row is stored without origin. Requires `sql/11_jogo_e_origem_das_respostas.sql`.
+
+```bash
+curl -X POST http://localhost:8080/habilidades \
+  -H "Content-Type: application/json" \
+  -d '{"matricula":"20260001","habilidade":"EF05MA03","tentativas":3,"acertos":2,"performance":0.6667,"gerador":"fracoes-v1"}'
+```
