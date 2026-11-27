@@ -651,6 +651,102 @@ class HttpError extends Error {
   }
 }
 
+// Directions published by Sabido's pedagogical interventions (flying.direcionamentos, migration
+// 20261127_direcionamentos.sql). Until that migration runs, the API behaves exactly as before.
+const DIRECTION_SCHEMA_TTL_MS = 60 * 1000;
+// A match may be uploaded a little after its direction ends (slow network, end of a long battle).
+const DIRECTION_GRACE = "2 hours";
+let directionSchema = { checkedAt: 0, ready: false };
+
+async function hasDirectionSchema() {
+  if (Date.now() - directionSchema.checkedAt < DIRECTION_SCHEMA_TTL_MS) {
+    return directionSchema.ready;
+  }
+  const result = await query(
+    `SELECT to_regclass('direcionamentos') IS NOT NULL
+        AND EXISTS (SELECT 1 FROM information_schema.columns
+                     WHERE table_schema = current_schema() AND table_name = 'partidas' AND column_name = 'pontos') AS ready`
+  );
+  directionSchema = { checkedAt: Date.now(), ready: Boolean(result.rows[0]?.ready) };
+  return directionSchema.ready;
+}
+
+function parseDirectionId(value) {
+  if (value === undefined || value === null || String(value).trim() === "") {
+    return null;
+  }
+  const id = Number(value);
+  if (!Number.isSafeInteger(id) || id <= 0) {
+    throw new HttpError(400, "direcionamento_id must be a positive integer");
+  }
+  return id;
+}
+
+// The direction a match or answer was played under, if it really applies to this student and game.
+// An outdated or unknown direction is not an error: the row is stored without it.
+async function resolveDirection(rawId, matricula) {
+  const id = parseDirectionId(rawId);
+  if (id === null || !(await hasDirectionSchema())) {
+    return null;
+  }
+  const result = await query(
+    `SELECT d.id
+       FROM direcionamentos d
+       JOIN direcionamento_alunos a ON a.direcionamento = d.id AND a.matricula = ?
+      WHERE d.id = ?
+        AND d.ativo
+        AND (d.jogo IS NULL OR d.jogo = ?)
+        AND d.inicio <= now()
+        AND now() < d.fim + interval '${DIRECTION_GRACE}'
+      LIMIT 1`,
+    [matricula, id, GAME_CODE]
+  );
+  return result.rowCount > 0 ? id : null;
+}
+
+// GET /direcionamentos/:matricula?modo=individual|pvp — active directions of a student in this game.
+// The game asks once when a battle starts and draws `peso` of the questions from `bncc`
+// (all skills, any matrix, are in `habilidades`). A tournament also brings its name, ranking and team.
+app.get("/direcionamentos/:matricula", async (req, res) => {
+  try {
+    const matricula = String(req.params.matricula || "").trim();
+    const modo = typeof req.query.modo === "string" ? req.query.modo.trim().toLowerCase() : "";
+    if (modo && !["individual", "pvp"].includes(modo)) {
+      return res.status(400).json({ message: "modo must be individual or pvp" });
+    }
+    if (!(await hasDirectionSchema())) {
+      return res.json([]);
+    }
+
+    const result = await query(
+      `SELECT d.id, d.tipo, d.nome, d.peso::float8 AS peso, d.classificacao, d.modo, d.jogo, d.inicio, d.fim, a.equipe,
+              COALESCE(json_agg(json_build_object('matriz', h.matriz, 'codigo', h.codigo) ORDER BY h.matriz, h.codigo)
+                       FILTER (WHERE h.codigo IS NOT NULL), '[]') AS habilidades
+         FROM direcionamento_alunos a
+         JOIN direcionamentos d ON d.id = a.direcionamento
+         LEFT JOIN direcionamento_habilidades h ON h.direcionamento = d.id
+        WHERE a.matricula = ?
+          AND d.ativo
+          AND now() >= d.inicio AND now() < d.fim
+          AND (d.jogo IS NULL OR d.jogo = ?)
+          AND (? = '' OR d.modo IS NULL OR d.modo = ?)
+        GROUP BY d.id, a.equipe
+        ORDER BY d.tipo DESC, d.fim`,
+      [matricula, GAME_CODE, modo, modo]
+    );
+
+    return res.json(
+      result.rows.map((row) => ({
+        ...row,
+        id: Number(row.id),
+        bncc: row.habilidades.filter((h) => h.matriz === "bncc").map((h) => h.codigo)
+      }))
+    );
+  } catch (error) {
+    return res.status(500).json({ message: error.message });
+  }
+});
+
 // POST /partidas — record a new match result
 app.post("/partidas", async (req, res) => {
   try {
@@ -684,16 +780,32 @@ app.post("/partidas", async (req, res) => {
 
     const vitoria = body.vitoria ? 1 : 0;
     const pvp     = body.pvp     ? 1 : 0;
+    // Points earned in this match (the same amount the game adds to alunos.pontos); older builds omit it.
+    const pontos = parseNonNegativeInt(body.pontos, "pontos");
+    const direcionamentoId = await resolveDirection(body.direcionamento_id, matricula);
 
-    const result = await query(
-      `INSERT INTO partidas (matricula, duracao, questoes, acertos, tempo, vitoria, pvp, jogo)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-      RETURNING id`,
-      [matricula, duracao, questoes, acertos, tempo, vitoria, pvp, GAME_CODE]
-    );
+    const result = (await hasDirectionSchema())
+      ? await query(
+          `INSERT INTO partidas (matricula, duracao, questoes, acertos, tempo, vitoria, pvp, jogo, pontos, direcionamento_id)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+          RETURNING id`,
+          [matricula, duracao, questoes, acertos, tempo, vitoria, pvp, GAME_CODE, pontos, direcionamentoId]
+        )
+      : await query(
+          `INSERT INTO partidas (matricula, duracao, questoes, acertos, tempo, vitoria, pvp, jogo)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+          RETURNING id`,
+          [matricula, duracao, questoes, acertos, tempo, vitoria, pvp, GAME_CODE]
+        );
 
-    return res.status(201).json({ id: result.insertId, matricula });
+    return res.status(201).json({ id: result.insertId, matricula, pontos, direcionamento_id: direcionamentoId });
   } catch (error) {
+    if (error instanceof HttpError) {
+      return res.status(error.status).json({ message: error.message });
+    }
+    if (/must be a non-negative integer/.test(error.message)) {
+      return res.status(400).json({ message: error.message });
+    }
     return res.status(500).json({ message: error.message });
   }
 });
@@ -756,16 +868,24 @@ app.post("/habilidades", async (req, res) => {
 
     const performance = Math.round(performanceRaw * 10000) / 10000;
     const { origem, questaoId, gerador } = parseQuestionOrigin(body);
+    const direcionamentoId = await resolveDirection(body.direcionamento_id, matricula);
 
     // One row per skill per match: flying.habilidades is an event log, and
     // atualizado_em (set by its default) is the event time. performance is
     // received as 0–1 and stored as 0–100.
-    const result = await query(
-      `INSERT INTO habilidades (matricula, habilidade, performance, tentativas, acertos, jogo, origem, questao_id, gerador)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-       RETURNING id`,
-      [matricula, habilidade, Math.round(performance * 10000) / 100, tentativas, acertos, GAME_CODE, origem, questaoId, gerador]
-    );
+    const result = (await hasDirectionSchema())
+      ? await query(
+          `INSERT INTO habilidades (matricula, habilidade, performance, tentativas, acertos, jogo, origem, questao_id, gerador, direcionamento_id)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+           RETURNING id`,
+          [matricula, habilidade, Math.round(performance * 10000) / 100, tentativas, acertos, GAME_CODE, origem, questaoId, gerador, direcionamentoId]
+        )
+      : await query(
+          `INSERT INTO habilidades (matricula, habilidade, performance, tentativas, acertos, jogo, origem, questao_id, gerador)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+           RETURNING id`,
+          [matricula, habilidade, Math.round(performance * 10000) / 100, tentativas, acertos, GAME_CODE, origem, questaoId, gerador]
+        );
 
     return res.status(201).json({
       id: result.insertId,
@@ -776,7 +896,8 @@ app.post("/habilidades", async (req, res) => {
       performance,
       origem,
       questao_id: questaoId,
-      gerador
+      gerador,
+      direcionamento_id: direcionamentoId
     });
   } catch (error) {
     if (error instanceof HttpError) {
@@ -793,6 +914,13 @@ app.post("/habilidades", async (req, res) => {
 app.get("/questoes/random", async (req, res) => {
   try {
     const { disciplina, etapa } = req.query;
+    // bncc=EF05MA08,EF05MA03 — questions with any of these codes (a question may list several, comma-separated).
+    const bncc = typeof req.query.bncc === "string"
+      ? [...new Set(req.query.bncc.split(",").map((code) => code.trim().toUpperCase()).filter(Boolean))]
+      : [];
+    if (bncc.length > 10 || bncc.some((code) => !/^[A-Z0-9]{4,20}$/.test(code))) {
+      return res.status(400).json({ message: "bncc must be up to 10 comma-separated codes" });
+    }
 
     let whereConditions = [];
     let params = [];
@@ -805,6 +933,11 @@ app.get("/questoes/random", async (req, res) => {
     if (etapa) {
       whereConditions.push(`etapa = $${whereConditions.length + 1}`);
       params.push(etapa);
+    }
+
+    if (bncc.length) {
+      whereConditions.push(`string_to_array(upper(regexp_replace(bncc, '\\s', '', 'g')), ',') && $${whereConditions.length + 1}::text[]`);
+      params.push(bncc);
     }
 
     const whereClause = whereConditions.length > 0
@@ -831,6 +964,10 @@ app.get("/questoes/random", async (req, res) => {
   }
 });
 
-app.listen(port, () => {
-  console.log(`Matemagos API listening on port ${port}`);
-});
+if (require.main === module) {
+  app.listen(port, () => {
+    console.log(`Matemagos API listening on port ${port}`);
+  });
+}
+
+module.exports = { app, pool };

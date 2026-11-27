@@ -148,6 +148,11 @@ curl http://localhost:8080/health
 - `PUT /alunos/:matricula/stats`
 - `PUT /device-id`
 - `PUT /device-id/reset`
+- `POST /partidas`, `GET /partidas`
+- `POST /habilidades`
+- `GET /questoes/random`
+- `GET /leaderboard/top`, `GET /leaderboard/rank/:matricula`
+- `GET /direcionamentos/:matricula`
 
 ### Create aluno
 
@@ -203,3 +208,34 @@ curl -X POST http://localhost:8080/habilidades \
   -H "Content-Type: application/json" \
   -d '{"matricula":"20260001","habilidade":"EF05MA03","tentativas":3,"acertos":2,"performance":0.6667,"gerador":"fracoes-v1"}'
 ```
+
+### Directions from Sabido interventions (`GET /direcionamentos/:matricula`)
+
+Teachers and managers create pedagogical interventions in Sabido; the game actions (missions and small class or school tournaments) are published to `flying.direcionamentos`. Requires `migrations/20261127_direcionamentos.sql` (Sabido repository). Before it runs, the route returns `[]` and the fields below are ignored.
+
+```bash
+curl "http://localhost:8080/direcionamentos/20260001?modo=individual"
+```
+
+```json
+[{ "id": 12, "tipo": "missao", "nome": null, "peso": 0.5, "classificacao": null, "modo": null, "jogo": null,
+   "inicio": "...", "fim": "...", "equipe": null,
+   "habilidades": [{ "matriz": "bncc", "codigo": "EF05MA08" }, { "matriz": "saeb", "codigo": "D3" }],
+   "bncc": ["EF05MA08"] }]
+```
+
+- `peso`: share of the questions to draw from `bncc` (up to 0.7 in a mission, up to 1 in a tournament). With several directions, join the skills and use the largest weight.
+- `tipo = torneio`: a tournament separate from the official ranking. Pair only its participants (Fusion session property), show `nome`; `classificacao` is `evolucao`, `equipes` (use `equipe`) or `pontos`. Sabido computes its ranking.
+- `modo`: send `individual` or `pvp` to get only the directions for that mode.
+
+Then send `direcionamento_id` with `POST /partidas` and `POST /habilidades` for every match and answer played under it, and `pontos` (points earned in the match, the same amount added to `alunos.pontos`) with every match. A direction that ended (more than 2 hours ago), was deactivated, belongs to another game or does not include the student is stored as empty instead of rejecting the row.
+
+Bank questions can be filtered by BNCC code: `GET /questoes/random?bncc=EF05MA08,EF05MA03`.
+
+### Tests
+
+```bash
+TEST_DATABASE_URL=postgresql://... npm test
+```
+
+Use a disposable copy of the Flying database with the directions migration applied: the tests write and remove rows.
