@@ -153,6 +153,7 @@ curl http://localhost:8080/health
 - `GET /questoes/random`
 - `GET /leaderboard/top`, `GET /leaderboard/rank/:matricula`
 - `GET /direcionamentos/:matricula`
+- `GET /torneios/:id/ranking?matricula=`
 
 ### Create aluno
 
@@ -229,6 +230,14 @@ curl "http://localhost:8080/direcionamentos/20260001?modo=individual"
 - `modo`: send `individual` or `pvp` to get only the directions for that mode.
 
 Then send `direcionamento_id` with `POST /partidas` and `POST /habilidades` for every match and answer played under it, and `pontos` (points earned in the match, the same amount added to `alunos.pontos`) with every match. A direction that ended (more than 2 hours ago), was deactivated, belongs to another game or does not include the student is stored as empty instead of rejecting the row.
+
+Tournament ranking, for one of its participants (others show only the short name; `eu` marks the asking student):
+
+```bash
+curl "http://localhost:8080/torneios/12/ranking?matricula=20260001"
+```
+
+It returns `torneio`, `alunos` (posicao, nome, equipe, partidas, vitorias, pontos, respostas, acerto, acerto_antes, evolucao, eu) and `equipes` (ranked by mean evolution, or by points when the tournament ranks by points). Computed by `flying.ranking_torneio` (Sabido `migrations/20261128_ranking_torneio.sql`), the same function Sabido uses.
 
 Bank questions can be filtered by BNCC code: `GET /questoes/random?bncc=EF05MA08,EF05MA03`.
 

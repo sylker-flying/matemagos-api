@@ -747,6 +747,70 @@ app.get("/direcionamentos/:matricula", async (req, res) => {
   }
 });
 
+// GET /torneios/:id/ranking?matricula=… — ranking of an intervention tournament, for one of its participants.
+// Computed by flying.ranking_torneio (migration 20261128_ranking_torneio.sql), the same function Sabido uses.
+// Other students show only the short name; "eu" marks the asking student. Teams are ranked by mean evolution.
+app.get("/torneios/:id/ranking", async (req, res) => {
+  try {
+    const id = parseDirectionId(req.params.id);
+    const matricula = typeof req.query.matricula === "string" ? req.query.matricula.trim() : "";
+    if (id === null || !matricula) {
+      return res.status(400).json({ message: "id and matricula are required" });
+    }
+    if (!(await hasDirectionSchema())) {
+      return res.status(404).json({ message: "tournament not found" });
+    }
+
+    const tournament = await query(
+      `SELECT d.id, d.nome, d.classificacao, d.inicio, d.fim, d.ativo
+         FROM direcionamentos d
+         JOIN direcionamento_alunos a ON a.direcionamento = d.id AND a.matricula = ?
+        WHERE d.id = ? AND d.tipo = 'torneio' AND (d.jogo IS NULL OR d.jogo = ?)`,
+      [matricula, id, GAME_CODE]
+    );
+    if (tournament.rowCount === 0) {
+      return res.status(404).json({ message: "tournament not found" });
+    }
+
+    const ranking = await query(
+      `SELECT r.matricula, ${SHORT_NOME_SQL.replaceAll("a1.", "r.")} AS nome, r.equipe, r.partidas, r.vitorias, r.pontos,
+              r.respostas, r.acerto::float8 AS acerto, r.acerto_antes::float8 AS acerto_antes, r.evolucao::float8 AS evolucao, r.posicao
+         FROM ranking_torneio(?) r`,
+      [id]
+    );
+
+    const alunos = ranking.rows.map(({ matricula: m, ...row }) => ({ ...row, eu: m === matricula }));
+    const teams = new Map();
+    for (const row of alunos) {
+      if (!row.equipe) continue;
+      const team = teams.get(row.equipe) || { equipe: row.equipe, alunos: 0, pontos: 0, evolucoes: [] };
+      team.alunos += 1;
+      team.pontos += row.pontos;
+      if (row.evolucao !== null) team.evolucoes.push(row.evolucao);
+      teams.set(row.equipe, team);
+    }
+    const byPoints = tournament.rows[0].classificacao === "pontos";
+    const equipes = [...teams.values()]
+      .map(({ evolucoes, ...team }) => ({
+        ...team,
+        evolucao: evolucoes.length ? Math.round((evolucoes.reduce((a, b) => a + b, 0) / evolucoes.length) * 10) / 10 : null
+      }))
+      .sort((a, b) => byPoints ? b.pontos - a.pontos : (b.evolucao ?? -Infinity) - (a.evolucao ?? -Infinity) || b.pontos - a.pontos)
+      .map((team, index) => ({ ...team, posicao: index + 1 }));
+
+    return res.json({ torneio: { ...tournament.rows[0], id: Number(tournament.rows[0].id) }, alunos, equipes });
+  } catch (error) {
+    if (error instanceof HttpError) {
+      return res.status(error.status).json({ message: error.message });
+    }
+    // 42883: ranking function missing (migration not applied yet).
+    if (error.code === "42883") {
+      return res.status(404).json({ message: "tournament ranking not available" });
+    }
+    return res.status(500).json({ message: error.message });
+  }
+});
+
 // POST /partidas — record a new match result
 app.post("/partidas", async (req, res) => {
   try {

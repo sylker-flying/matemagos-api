@@ -114,3 +114,21 @@ test("o acervo filtra questões por código BNCC", async () => {
   assert.equal((await call("GET", "/questoes/random?bncc=EF99XX99")).status, 404);
   assert.equal((await call("GET", "/questoes/random?bncc=nao%20vale")).status, 400);
 });
+
+test("o ranking do torneio vem da função do Flying e só para participantes", async () => {
+  await call("POST", "/habilidades", { matricula, habilidade: "EF05MA08", tentativas: 6, acertos: 5, performance: 0.8333, gerador: "fracoes-v1", direcionamento_id: ids.torneio });
+  const { status, body } = await call("GET", `/torneios/${ids.torneio}/ranking?matricula=${encodeURIComponent(matricula)}`);
+  assert.equal(status, 200);
+  assert.equal(body.torneio.nome, "Torneio da turma 5ºA");
+  assert.equal(body.alunos.length, 1);
+  const me = body.alunos[0];
+  assert.equal(me.eu, true);
+  assert.equal(me.matricula, undefined);
+  assert.equal(me.pontos, 100);
+  assert.equal(me.respostas, 6);
+  assert.equal(me.posicao, 1);
+  assert.deepEqual(body.equipes.map((e) => [e.equipe, e.alunos, e.posicao]), [["Equipe A", 1, 1]]);
+  assert.equal((await call("GET", `/torneios/${ids.torneio}/ranking?matricula=${encodeURIComponent(other)}`)).status, 404);
+  assert.equal((await call("GET", `/torneios/${ids.missao}/ranking?matricula=${encodeURIComponent(matricula)}`)).status, 404);
+  assert.equal((await call("GET", `/torneios/${ids.torneio}/ranking`)).status, 400);
+});
